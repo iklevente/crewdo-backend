@@ -3,15 +3,11 @@ import * as bcrypt from 'bcrypt';
 import { AppModule } from '../app.module';
 import { UsersService } from '../users/users.service';
 import { WorkspaceService } from '../services/workspace.service';
-// import { ChannelService } from '../services/channel.service'; // Commented out - service missing
-// import { MessageService } from '../services/message.service'; // Commented out - not used without channels
 import { PresenceService } from '../services/presence.service';
 import { UserRole } from '../entities/user.entity';
 import { WorkspaceType } from '../entities/workspace.entity';
-// import { ChannelType } from '../entities/channel.entity'; // Temporarily commented out due to missing ChannelService
 import { PresenceStatus } from '../dto/presence.dto';
 
-// Type interfaces for seed script
 interface SeedWorkspace {
   id: string;
   name: string;

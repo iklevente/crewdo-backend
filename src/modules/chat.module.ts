@@ -4,16 +4,18 @@ import { DatabaseModule } from '../config/database.module';
 
 // Services
 import { WorkspaceService } from '../services/workspace.service';
-// import { ChannelService } from '../services/channel.service'; // Service missing - using stubs in controller/gateway
 import { MessageService } from '../services/message.service';
 import { CallService } from '../services/call.service';
 import { PresenceService } from '../services/presence.service';
+import { MediaService } from '../services/media.service';
+import { RecordingService } from '../services/recording.service';
 
 // Controllers
 import { WorkspaceController } from '../controllers/workspace.controller';
 import { ChannelController } from '../controllers/channel.controller';
 import { MessageController } from '../controllers/message.controller';
 import { CallController } from '../controllers/call.controller';
+import { MediaController } from '../controllers/media.controller';
 
 // Gateway
 import { ChatGateway } from '../websocket/chat.gateway';
@@ -31,6 +33,7 @@ import { ChatGateway } from '../websocket/chat.gateway';
     ChannelController,
     MessageController,
     CallController,
+    MediaController,
   ],
   providers: [
     WorkspaceService,
@@ -38,6 +41,8 @@ import { ChatGateway } from '../websocket/chat.gateway';
     MessageService,
     CallService,
     PresenceService,
+    MediaService,
+    RecordingService,
     ChatGateway,
   ],
   exports: [
@@ -46,6 +51,8 @@ import { ChatGateway } from '../websocket/chat.gateway';
     MessageService,
     CallService,
     PresenceService,
+    MediaService,
+    RecordingService,
   ],
 })
 export class ChatModule {}

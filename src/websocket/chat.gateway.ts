@@ -11,7 +11,8 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { MessageService } from '../services/message.service';
-// import { ChannelService } from '../services/channel.service'; // Service missing - using stub
+import { MediaService } from '../services/media.service';
+import { RecordingService } from '../services/recording.service';
 import { CreateMessageDto } from '../dto/message.dto';
 
 interface JwtPayload {
@@ -61,8 +62,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly channelService: ChannelService;
 
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly messageService: MessageService,
+    private messageService: MessageService,
+    private jwtService: JwtService,
+    private mediaService: MediaService,
+    private recordingService: RecordingService,
   ) {
     this.channelService = new ChannelServiceStub();
   }
@@ -118,7 +121,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async handleDisconnect(client: AuthenticatedSocket) {
-    await Promise.resolve(); // Satisfy require-await rule
+    await Promise.resolve();
     if (client.userId) {
       const userSockets = this.connectedUsers.get(client.userId);
       if (userSockets) {
@@ -445,5 +448,185 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Method to send message to channel
   sendToChannel(channelId: string, event: string, data: any) {
     this.server.to(`channel_${channelId}`).emit(event, data);
+  }
+
+  // Media-related WebSocket handlers
+  @SubscribeMessage('media_join_room')
+  handleMediaJoinRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: {
+      callId: string;
+      options?: { audio: boolean; video: boolean; screen: boolean };
+    },
+  ) {
+    try {
+      const result = this.mediaService.joinRoom(
+        data.callId,
+        client.userId!,
+        data.options || { audio: true, video: true, screen: false },
+      );
+
+      client.emit('media_session_created', { session: result.sessionInfo });
+      client.to(`call_${data.callId}`).emit('media_user_joined', {
+        userId: client.userId,
+        sessionId: result.sessionInfo?.roomId || data.callId,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      client.emit('error', {
+        message: 'Failed to join media room',
+        error: errorMessage,
+      });
+    }
+  }
+
+  @SubscribeMessage('media_leave_room')
+  handleMediaLeaveRoom(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { callId: string },
+  ) {
+    try {
+      this.mediaService.leaveRoom(data.callId, client.userId!);
+      client.to(`call_${data.callId}`).emit('media_user_left', {
+        userId: client.userId,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      client.emit('error', {
+        message: 'Failed to leave media room',
+        error: errorMessage,
+      });
+    }
+  }
+
+  @SubscribeMessage('screen_share_start')
+  handleScreenShareStart(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { callId: string },
+  ) {
+    try {
+      void this.mediaService.startScreenShare(data.callId, client.userId!);
+      client.to(`call_${data.callId}`).emit('screen_share_started', {
+        userId: client.userId,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      client.emit('error', {
+        message: 'Failed to start screen sharing',
+        error: errorMessage,
+      });
+    }
+  }
+
+  @SubscribeMessage('screen_share_stop')
+  handleScreenShareStop(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { callId: string },
+  ) {
+    try {
+      this.mediaService.stopScreenShare(data.callId, client.userId!);
+      client.to(`call_${data.callId}`).emit('screen_share_stopped', {
+        userId: client.userId,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      client.emit('error', {
+        message: 'Failed to stop screen sharing',
+        error: errorMessage,
+      });
+    }
+  }
+
+  @SubscribeMessage('recording_start')
+  handleRecordingStart(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: {
+      callId: string;
+      format?: string;
+      quality?: 'low' | 'medium' | 'high';
+    },
+  ) {
+    try {
+      const recording = this.recordingService.startRecording(data.callId, {
+        format: data.format,
+        quality: data.quality,
+      });
+
+      client.emit('recording_started', { recording });
+      client.to(`call_${data.callId}`).emit('recording_notification', {
+        message: 'Recording started',
+        recordingId: recording.id,
+        startedBy: client.userId,
+      });
+    } catch (error) {
+      client.emit('error', {
+        message: 'Failed to start recording',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  @SubscribeMessage('recording_stop')
+  async handleRecordingStop(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { recordingId: string; callId: string },
+  ) {
+    try {
+      const recording = await this.recordingService.stopRecording(
+        data.recordingId,
+      );
+
+      client.emit('recording_stopped', { recording });
+      client.to(`call_${data.callId}`).emit('recording_notification', {
+        message: 'Recording stopped',
+        recordingId: recording.id,
+        stoppedBy: client.userId,
+      });
+    } catch (error) {
+      client.emit('error', {
+        message: 'Failed to stop recording',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  @SubscribeMessage('quality_report')
+  handleQualityReport(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: {
+      callId: string;
+      metrics: {
+        audio?: { packetsLost: number; jitter: number };
+        video?: { packetsLost: number; frameRate: number; resolution: string };
+        connection?: { rtt: number; bandwidth: number };
+      };
+    },
+  ) {
+    try {
+      // Store quality metrics (in production, would save to database)
+      this.logger.log(
+        `Quality report from ${client.userId} for call ${data.callId}:`,
+        data.metrics,
+      );
+
+      // Could emit to call moderator or admin interface
+      client.to(`call_${data.callId}`).emit('quality_metrics_updated', {
+        userId: client.userId,
+        metrics: data.metrics,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      client.emit('error', {
+        message: 'Failed to process quality report',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   }
 }

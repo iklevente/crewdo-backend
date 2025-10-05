@@ -18,7 +18,6 @@ import {
   ApiResponse,
   ApiParam,
 } from '@nestjs/swagger';
-// import { ChannelService } from '../services/channel.service'; // Service missing - using stub
 import {
   CreateChannelDto,
   CreateDirectMessageDto,
