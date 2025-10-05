@@ -1,0 +1,19 @@
+{
+  "spaces": 2,
+  "generate-alias-as-model": false,
+  "sort-params-by-required": true,
+  "sort-model-properties-by-required": true,
+  "ensure-unique-params": true,
+  "allow-unicode-identifiers": false,
+  "prepend-form-or-body-parameters": true,
+  "model-property-naming": "camelCase",
+  "parameter-naming": "camelCase",
+  "enum-property-naming": "camelCase",
+  "supports-es6": true,
+  "npm-name": "crewdo-api-client",
+  "npm-version": "1.0.0",
+  "with-interfaces": true,
+  "use-single-request-parameter": true,
+  "legacy-discriminator-behavior": false,
+  "use-object-parameters": true
+}

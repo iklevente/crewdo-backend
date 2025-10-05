@@ -26,15 +26,33 @@ async function bootstrap() {
   // Swagger API documentation
   const config = new DocumentBuilder()
     .setTitle('Crewdo API')
-    .setDescription('Team collaboration and project management API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addTag('Authentication', 'User authentication and authorization')
-    .addTag('Users', 'User management operations')
-    .addTag('Projects', 'Project management operations')
-    .addTag('Tasks', 'Task management operations')
-    .addTag('Comments', 'Comment management operations')
-    .addServer('/api') // Ensures Swagger UI uses /api as base path
+    .setVersion('1.0.0')
+    .setContact('Crewdo Team', 'https://crewdo.com', 'support@crewdo.com')
+    .setLicense('MIT', 'https://opensource.org/licenses/MIT')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth',
+    )
+    .addTag('Authentication', 'User authentication and authorization endpoints')
+    .addTag('Users', 'User profile and management operations')
+    .addTag('Workspaces', 'Workspace creation and management')
+    .addTag('Channels', 'Communication channel management')
+    .addTag('Messages', 'Real-time messaging operations')
+    .addTag('Projects', 'Project management and organization')
+    .addTag('Tasks', 'Task creation, assignment, and tracking')
+    .addTag('Comments', 'Comments and discussions on tasks/projects')
+    .addTag('Calls', 'Voice and video call management')
+    .addTag('Media', 'VoIP, screen sharing, and media operations')
+    .addTag('Files', 'File upload and management')
+    .addServer('/api', 'Production API') // Ensures Swagger UI uses /api as base path
+    .addServer('http://localhost:3000/api', 'Development API')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
