@@ -21,78 +21,223 @@
   <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
   [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-## Description
+# Crewdo Backend
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+A comprehensive team collaboration and project management API built with NestJS, TypeScript, and PostgreSQL.
 
-## Project setup
+## Features
 
-```bash
-$ npm install
+- 🔐 **Authentication & Authorization** - JWT-based auth with role-based access control
+- 👥 **User Management** - Complete user CRUD with roles (Admin, Project Manager, Team Member, Client)
+- 📋 **Project Management** - Create, manage, and collaborate on projects
+- ✅ **Task Management** - Full task lifecycle with assignments, priorities, and status tracking
+- 💬 **Comments System** - Task-based commenting and collaboration
+- 📁 **File Attachments** - Upload and manage project/task files
+- 🔔 **Notifications** - Real-time notification system
+- 📊 **Rich API Documentation** - Auto-generated Swagger/OpenAPI docs
+- 🛡️ **Security** - Input validation, CORS, and secure authentication
+- 🏗️ **Type Safety** - Full TypeScript implementation with strict typing
+
+## Tech Stack
+
+- **Framework**: NestJS
+- **Language**: TypeScript
+- **Database**: Microsoft SQL Server with TypeORM
+- **Authentication**: JWT with Passport
+- **Documentation**: Swagger/OpenAPI
+- **Validation**: class-validator
+- **File Upload**: Multer
+- **Environment**: dotenv
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js (v16 or higher)
+- Microsoft SQL Server (accessible at localhost:1434)
+- npm or yarn
+
+### Installation
+
+1. **Clone the repository**
+
+   ```bash
+   git clone <repository-url>
+   cd crewdo-backend
+   ```
+
+2. **Install dependencies**
+
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your database credentials and other configuration
+   ```
+
+4. **Ensure your MSSQL database exists**
+
+   ```sql
+   -- Connect to your MSSQL server and create the database if it doesn't exist
+   CREATE DATABASE crewdo_backend;
+   ```
+
+5. **Run database migrations and seed data**
+
+   ```bash
+   npm run seed
+   ```
+
+6. **Start the development server**
+   ```bash
+   npm run start:dev
+   ```
+
+The API will be available at `http://localhost:3000/api`
+
+## API Documentation
+
+Once the server is running, visit `http://localhost:3000/api/docs` for interactive API documentation.
+
+## Default Users
+
+After running the seed script, you can log in with these default accounts:
+
+- **Admin**: `admin@crewdo.com` / `admin123`
+- **Project Manager**: `pm@crewdo.com` / `pm123`
+- **Team Member**: `member@crewdo.com` / `member123`
+
+## API Endpoints
+
+### Authentication
+
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/refresh` - Refresh token
+- `GET /api/auth/profile` - Get current user profile
+
+### Users
+
+- `GET /api/users` - Get all users
+- `GET /api/users/me` - Get current user profile
+- `PATCH /api/users/me` - Update current user profile
+- `PATCH /api/users/me/password` - Change password
+- `GET /api/users/search` - Search users
+- `GET /api/users/:id` - Get user by ID
+- `PATCH /api/users/:id` - Update user (Admin only)
+- `DELETE /api/users/:id` - Delete user (Admin only)
+
+### Projects
+
+- `POST /api/projects` - Create project
+- `GET /api/projects` - Get accessible projects
+- `GET /api/projects/:id` - Get project details
+- `PATCH /api/projects/:id` - Update project
+- `DELETE /api/projects/:id` - Delete project
+- `PATCH /api/projects/:id/members` - Add project members
+- `DELETE /api/projects/:id/members/:memberId` - Remove project member
+
+### Tasks
+
+- `POST /api/tasks` - Create task
+- `GET /api/tasks` - Get accessible tasks
+- `GET /api/tasks/my-tasks` - Get user's assigned/created tasks
+- `GET /api/tasks/:id` - Get task details
+- `PATCH /api/tasks/:id` - Update task
+- `DELETE /api/tasks/:id` - Delete task
+- `PATCH /api/tasks/:id/position` - Update task position
+
+## Environment Variables
+
+Create a `.env` file based on `.env.example`:
+
+```env
+# Server Configuration
+PORT=3000
+NODE_ENV=development
+
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=password
+DB_NAME=crewdo
+
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-here
+JWT_EXPIRES_IN=1d
+JWT_REFRESH_SECRET=your-super-secret-refresh-key-here
+JWT_REFRESH_EXPIRES_IN=7d
+
+# CORS Configuration
+CORS_ORIGIN=http://localhost:3001
 ```
 
-## Compile and run the project
+## Scripts
 
 ```bash
-# development
-$ npm run start
+# Development
+npm run start:dev        # Start with hot reload
+npm run start:debug      # Start in debug mode
 
-# watch mode
-$ npm run start:dev
+# Production
+npm run build           # Build the project
+npm run start:prod      # Start production server
 
-# production mode
-$ npm run start:prod
+# Database
+npm run seed           # Seed database with initial data
+
+# Testing
+npm run test           # Run unit tests
+npm run test:e2e       # Run e2e tests
+npm run test:cov       # Run tests with coverage
+
+# Code Quality
+npm run lint           # Run ESLint
+npm run format         # Format code with Prettier
 ```
 
-## Run tests
+## Database Schema
 
-```bash
-# unit tests
-$ npm run test
+The application uses the following main entities:
 
-# e2e tests
-$ npm run test:e2e
+- **User** - User accounts with roles and profiles
+- **Project** - Projects with owners and members
+- **Task** - Tasks within projects with assignments and tracking
+- **Comment** - Comments on tasks for collaboration
+- **Notification** - System notifications for users
+- **Attachment** - File attachments for projects and tasks
 
-# test coverage
-$ npm run test:cov
-```
+## Security Features
 
-## Deployment
+- JWT token-based authentication
+- Role-based access control (RBAC)
+- Password hashing with bcrypt
+- Input validation and sanitization
+- CORS protection
+- SQL injection prevention with TypeORM
+- Rate limiting ready (can be added)
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Contributing
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+## Development Tips
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+1. **API Testing**: Use the Swagger UI at `/api/docs` for testing endpoints
+2. **Database**: Use TypeORM CLI for migrations and schema changes
+3. **Validation**: All DTOs include validation - check the DTO files for requirements
+4. **Authentication**: Include `Authorization: Bearer <token>` header for protected routes
+5. **Errors**: The API returns consistent error responses with appropriate HTTP status codes
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
