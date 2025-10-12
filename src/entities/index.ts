@@ -10,6 +10,7 @@ export { Workspace, WorkspaceType } from './workspace.entity';
 export { Channel, ChannelType, ChannelVisibility } from './channel.entity';
 export { Message, MessageType } from './message.entity';
 export { MessageReaction } from './message-reaction.entity';
+export { MessageReadReceipt } from './message-read-receipt.entity';
 export { Call, CallType, CallStatus } from './call.entity';
 export { CallParticipant, ParticipantStatus } from './call-participant.entity';
 export {

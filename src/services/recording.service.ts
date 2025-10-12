@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { createReadStream } from 'fs';
 
 export interface Recording {
   id: string;
@@ -208,7 +209,7 @@ export class RecordingService {
   /**
    * Get recording stream for playback
    */
-  getRecordingStream(recordingId: string): Promise<{
+  async getRecordingStream(recordingId: string): Promise<{
     stream: NodeJS.ReadableStream;
     size: number;
     contentType: string;
@@ -218,11 +219,34 @@ export class RecordingService {
       throw new Error(`Recording ${recordingId} not found`);
     }
 
-    // In production, this would stream from cloud storage
-    // For now, simulate streaming capability
-    throw new Error(
-      'Streaming not implemented - would stream from file/cloud storage',
-    );
+    if (recording.status !== 'completed') {
+      throw new Error('Recording is not ready for streaming');
+    }
+
+    try {
+      // Check if file exists
+      await fs.access(recording.filePath);
+
+      // Get file stats
+      const stats = await fs.stat(recording.filePath);
+
+      // Create read stream
+      const stream = createReadStream(recording.filePath);
+
+      // Determine content type based on file extension
+      const contentType = this.getContentType(recording.filename);
+
+      return {
+        stream,
+        size: stats.size,
+        contentType,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to create stream for recording ${recordingId}: ${error}`,
+      );
+      throw new Error('Recording file not accessible');
+    }
   }
 
   /**
@@ -270,6 +294,28 @@ export class RecordingService {
         return 2000000; // 2 Mbps
       default:
         return 1000000;
+    }
+  }
+
+  private getContentType(filename: string): string {
+    const extension = path.extname(filename).toLowerCase();
+    switch (extension) {
+      case '.webm':
+        return 'video/webm';
+      case '.mp4':
+        return 'video/mp4';
+      case '.avi':
+        return 'video/x-msvideo';
+      case '.mov':
+        return 'video/quicktime';
+      case '.wav':
+        return 'audio/wav';
+      case '.mp3':
+        return 'audio/mpeg';
+      case '.ogg':
+        return 'audio/ogg';
+      default:
+        return 'application/octet-stream';
     }
   }
 }

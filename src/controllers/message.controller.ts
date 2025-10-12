@@ -21,6 +21,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { MessageService } from '../services/message.service';
+import { ChannelService } from '../services/channel.service';
 import {
   CreateMessageDto,
   UpdateMessageDto,
@@ -29,6 +30,7 @@ import {
   MessageSearchDto,
   MessageHistoryDto,
 } from '../dto/message.dto';
+import { MarkAsReadDto, ReadReceiptResponseDto } from '../dto/read-receipt.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface AuthenticatedRequest extends Request {
@@ -43,7 +45,10 @@ interface AuthenticatedRequest extends Request {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class MessageController {
-  constructor(private readonly messageService: MessageService) {}
+  constructor(
+    private readonly messageService: MessageService,
+    private readonly channelService: ChannelService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new message' })
@@ -180,9 +185,11 @@ export class MessageController {
     description: 'Message details',
     type: MessageResponseDto,
   })
-  findOne(@Param('id') id: string): Promise<MessageResponseDto> {
-    // This would need to be implemented in the service
-    throw new Error(`Method not implemented for message ${id}`);
+  async findOne(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<MessageResponseDto> {
+    return this.messageService.findOne(id, req.user.id);
   }
 
   @Patch(':id')
@@ -221,5 +228,53 @@ export class MessageController {
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
     return this.messageService.addReaction(messageReactionDto, req.user.id);
+  }
+
+  @Post('channel/:channelId/mark-read')
+  @ApiOperation({ summary: 'Mark messages as read in a channel' })
+  @ApiParam({ name: 'channelId', description: 'Channel ID' })
+  @ApiResponse({
+    status: 201,
+    description: 'Messages marked as read successfully',
+    type: ReadReceiptResponseDto,
+  })
+  async markChannelAsRead(
+    @Param('channelId') channelId: string,
+    @Body() markAsReadDto: MarkAsReadDto,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<ReadReceiptResponseDto> {
+    await this.channelService.markMessagesAsRead(
+      channelId,
+      req.user.id,
+      markAsReadDto.upToMessageId,
+    );
+
+    return {
+      message: 'Messages marked as read successfully',
+      markedAsRead: await this.channelService.getUnreadCount(
+        channelId,
+        req.user.id,
+      ),
+    };
+  }
+
+  @Get('channel/:channelId/read-status')
+  @ApiOperation({ summary: 'Get read status for messages in a channel' })
+  @ApiParam({ name: 'channelId', description: 'Channel ID' })
+  @ApiQuery({
+    name: 'messageIds',
+    required: true,
+    description: 'Comma-separated list of message IDs',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Read status for messages',
+  })
+  async getMessageReadStatus(
+    @Param('channelId') channelId: string,
+    @Query('messageIds') messageIds: string,
+  ): Promise<Record<string, { readBy: string[]; readCount: number }>> {
+    const messageIdArray = messageIds.split(',').filter(Boolean);
+    return this.channelService.getMessageReadStatus(channelId, messageIdArray);
   }
 }

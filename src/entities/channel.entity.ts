@@ -13,6 +13,7 @@ import {
 import { User } from './user.entity';
 import { Message } from './message.entity';
 import { Project } from './project.entity';
+import { Workspace } from './workspace.entity';
 
 export enum ChannelType {
   TEXT = 'text',
@@ -108,9 +109,9 @@ export class Channel {
   parentChannel: Channel;
 
   // Workspace relationship
-  @ManyToOne('Workspace', { nullable: true })
+  @ManyToOne(() => Workspace, { nullable: true })
   @JoinColumn({ name: 'workspaceId' })
-  workspace: any;
+  workspace: Workspace;
 
   @Column('uuid', { nullable: true })
   workspaceId: string;

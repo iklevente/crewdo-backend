@@ -24,37 +24,8 @@ import {
   UpdateChannelDto,
   ChannelResponseDto,
 } from '../dto/channel.dto';
-
-// Stub interface for missing ChannelService
-interface ChannelService {
-  create(dto: CreateChannelDto, userId: string): Promise<ChannelResponseDto>;
-  createDirectMessage(
-    dto: CreateDirectMessageDto,
-    userId: string,
-  ): Promise<ChannelResponseDto>;
-  findByWorkspace(
-    workspaceId: string,
-    userId: string,
-  ): Promise<ChannelResponseDto[]>;
-  findDirectMessages(userId: string): Promise<ChannelResponseDto[]>;
-  findOne(id: string, userId: string): Promise<ChannelResponseDto>;
-  update(
-    id: string,
-    dto: UpdateChannelDto,
-    userId: string,
-  ): Promise<ChannelResponseDto>;
-  remove(id: string, userId: string): Promise<void>;
-  addMember(
-    channelId: string,
-    userId: string,
-    requesterId: string,
-  ): Promise<void>;
-  removeMember(
-    channelId: string,
-    userId: string,
-    requesterId: string,
-  ): Promise<void>;
-}
+import { ChannelService } from '../services/channel.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface AuthenticatedRequest {
   user: {
@@ -64,57 +35,12 @@ interface AuthenticatedRequest {
   };
 }
 
-// Stub implementation for missing ChannelService
-class ChannelServiceStub implements ChannelService {
-  async create(): Promise<ChannelResponseDto> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async createDirectMessage(): Promise<ChannelResponseDto> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async findByWorkspace(): Promise<ChannelResponseDto[]> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async findDirectMessages(): Promise<ChannelResponseDto[]> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async findOne(): Promise<ChannelResponseDto> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async update(): Promise<ChannelResponseDto> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async remove(): Promise<void> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async addMember(): Promise<void> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async removeMember(): Promise<void> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-}
-
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-
 @ApiTags('channels')
 @Controller('channels')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class ChannelController {
-  private readonly channelService: ChannelService;
-
-  constructor() {
-    this.channelService = new ChannelServiceStub();
-  }
+  constructor(private readonly channelService: ChannelService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new channel' })

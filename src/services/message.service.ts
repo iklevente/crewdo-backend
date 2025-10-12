@@ -450,6 +450,37 @@ export class MessageService {
     );
   }
 
+  async findOne(id: string, userId: string): Promise<MessageResponseDto> {
+    const message = await this.messageRepository.findOne({
+      where: { id, isDeleted: false },
+      relations: [
+        'author',
+        'channel',
+        'channel.members',
+        'replyTo',
+        'replyTo.author',
+        'attachments',
+        'reactions',
+        'reactions.user',
+        'mentionedUsers',
+      ],
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message not found');
+    }
+
+    // Check if user has access to the channel
+    const isMember = message.channel.members.some(
+      (member) => member.id === userId,
+    );
+    if (!isMember) {
+      throw new ForbiddenException('Access denied to this message');
+    }
+
+    return this.formatMessageResponse(message, userId);
+  }
+
   async getPinnedMessages(
     channelId: string,
     userId: string,

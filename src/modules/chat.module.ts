@@ -4,6 +4,7 @@ import { DatabaseModule } from '../config/database.module';
 
 // Services
 import { WorkspaceService } from '../services/workspace.service';
+import { ChannelService } from '../services/channel.service';
 import { MessageService } from '../services/message.service';
 import { CallService } from '../services/call.service';
 import { PresenceService } from '../services/presence.service';
@@ -37,7 +38,7 @@ import { ChatGateway } from '../websocket/chat.gateway';
   ],
   providers: [
     WorkspaceService,
-    // ChannelService, // Service missing - using stubs in controller/gateway
+    ChannelService,
     MessageService,
     CallService,
     PresenceService,
@@ -47,7 +48,7 @@ import { ChatGateway } from '../websocket/chat.gateway';
   ],
   exports: [
     WorkspaceService,
-    // ChannelService, // Service missing - using stubs in controller/gateway
+    ChannelService,
     MessageService,
     CallService,
     PresenceService,

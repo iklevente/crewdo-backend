@@ -235,16 +235,32 @@ export class PresenceService {
     }
   }
 
-  getWorkspacePresences(workspaceId: string): Promise<PresenceResponseDto[]> {
-    // TODO: Implement getting all presences in a workspace for workspaceId
-    void workspaceId; // Explicitly mark as unused until implemented
-    return Promise.resolve([]);
+  async getWorkspacePresences(
+    workspaceId: string,
+  ): Promise<PresenceResponseDto[]> {
+    // Get all users in the workspace and their presence information
+    const presences = await this.presenceRepository
+      .createQueryBuilder('presence')
+      .leftJoinAndSelect('presence.user', 'user')
+      .leftJoin('channel_members', 'cm', 'cm.userId = user.id')
+      .leftJoin('channels', 'c', 'c.id = cm.channelId')
+      .where('c.workspaceId = :workspaceId', { workspaceId })
+      .groupBy('presence.id, user.id')
+      .getMany();
+
+    return presences.map((presence) => this.formatPresenceResponse(presence));
   }
 
-  getChannelPresences(channelId: string): Promise<PresenceResponseDto[]> {
-    // TODO: Implement getting all presences in a channel for channelId
-    void channelId; // Explicitly mark as unused until implemented
-    return Promise.resolve([]);
+  async getChannelPresences(channelId: string): Promise<PresenceResponseDto[]> {
+    // Get presence for all members of a specific channel
+    const presences = await this.presenceRepository
+      .createQueryBuilder('presence')
+      .leftJoinAndSelect('presence.user', 'user')
+      .leftJoin('channel_members', 'cm', 'cm.userId = user.id')
+      .where('cm.channelId = :channelId', { channelId })
+      .getMany();
+
+    return presences.map((presence) => this.formatPresenceResponse(presence));
   }
 
   private formatPresenceResponse(presence: UserPresence): PresenceResponseDto {

@@ -111,16 +111,17 @@ export class WorkspaceController {
     return this.workspaceService.remove(id, req.user.id);
   }
 
-  @Post(':id/members')
+  @Post(':id/members/:email')
   @ApiOperation({ summary: 'Add member to workspace' })
   @ApiParam({ name: 'id', description: 'Workspace ID' })
+  @ApiParam({ name: 'email', description: 'User email to add' })
   @ApiResponse({ status: 201, description: 'Member added successfully' })
   async addMember(
     @Param('id') id: string,
-    @Param('userId') userId: string,
+    @Param('email') email: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return this.workspaceService.addMember(id, userId, req.user.id);
+    return this.workspaceService.addMember(id, email, req.user.id);
   }
 
   @Delete(':id/members/:userId')

@@ -13,29 +13,13 @@ import { JwtService } from '@nestjs/jwt';
 import { MessageService } from '../services/message.service';
 import { MediaService } from '../services/media.service';
 import { RecordingService } from '../services/recording.service';
+import { ChannelService } from '../services/channel.service';
 import { CreateMessageDto } from '../dto/message.dto';
 
 interface JwtPayload {
   email: string;
   sub: string;
   role: string;
-}
-
-// Stub interface for missing ChannelService (gateway needs fewer methods)
-interface ChannelService {
-  findOne(id: string, userId: string): Promise<{ id: string }>;
-  findDirectMessages(userId: string): Promise<{ id: string }[]>;
-}
-
-// Stub implementation for missing ChannelService
-class ChannelServiceStub implements ChannelService {
-  async findOne(): Promise<{ id: string }> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
-
-  async findDirectMessages(): Promise<{ id: string }[]> {
-    return await Promise.reject(new Error('ChannelService not implemented'));
-  }
 }
 
 interface AuthenticatedSocket extends Socket {
@@ -59,16 +43,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private connectedUsers = new Map<string, Set<string>>(); // userId -> Set of socketIds
   private userChannels = new Map<string, Set<string>>(); // userId -> Set of channelIds
 
-  private readonly channelService: ChannelService;
-
   constructor(
     private messageService: MessageService,
     private jwtService: JwtService,
     private mediaService: MediaService,
     private recordingService: RecordingService,
-  ) {
-    this.channelService = new ChannelServiceStub();
-  }
+    private channelService: ChannelService,
+  ) {}
 
   async handleConnection(client: AuthenticatedSocket) {
     try {
@@ -625,6 +606,42 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       client.emit('error', {
         message: 'Failed to process quality report',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  @SubscribeMessage('mark_messages_read')
+  async handleMarkMessagesRead(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    data: {
+      channelId: string;
+      upToMessageId?: string;
+    },
+  ) {
+    try {
+      await this.channelService.markMessagesAsRead(
+        data.channelId,
+        client.userId!,
+        data.upToMessageId,
+      );
+
+      // Broadcast to channel that user has read messages
+      client.to(`channel_${data.channelId}`).emit('messages_read', {
+        userId: client.userId,
+        channelId: data.channelId,
+        upToMessageId: data.upToMessageId,
+        timestamp: new Date(),
+      });
+
+      client.emit('messages_marked_read', {
+        channelId: data.channelId,
+        success: true,
+      });
+    } catch (error) {
+      client.emit('error', {
+        message: 'Failed to mark messages as read',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
