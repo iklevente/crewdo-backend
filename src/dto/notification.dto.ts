@@ -5,7 +5,9 @@ import {
   IsEnum,
   IsUUID,
   IsBoolean,
+  IsNumber,
 } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { NotificationType } from '../entities/notification.entity';
 
 export class CreateNotificationDto {
@@ -115,8 +117,15 @@ export class NotificationQueryDto {
   @ApiProperty({
     description: 'Filter by read status',
     required: false,
+    type: 'boolean',
   })
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    if (typeof value === 'boolean') return value;
+    return undefined;
+  })
   @IsBoolean()
   isRead?: boolean;
 
@@ -124,15 +133,21 @@ export class NotificationQueryDto {
     description: 'Limit number of results',
     required: false,
     default: 50,
+    type: 'integer',
   })
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   limit?: number;
 
   @ApiProperty({
     description: 'Offset for pagination',
     required: false,
     default: 0,
+    type: 'integer',
   })
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   offset?: number;
 }

@@ -1,13 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
-export interface MediaServerSession {
+interface MediaServerSession {
   sessionId: string;
   pluginHandle: string;
   roomId: string;
 }
 
-export interface WebRTCConfiguration {
+interface WebRTCConfiguration {
   iceServers: Array<{
     urls: string[];
     username?: string;
@@ -15,7 +14,7 @@ export interface WebRTCConfiguration {
   }>;
 }
 
-export interface MediaRoom {
+interface MediaRoom {
   id: string;
   name: string;
   participants: string[];
@@ -27,7 +26,7 @@ export interface MediaRoom {
   createdBy: string; // User ID of the room creator
 }
 
-export interface QualityMetric {
+interface QualityMetric {
   userId: string;
   metrics: {
     bitrate: number;
@@ -45,7 +44,7 @@ export class MediaService {
   private mediaRooms: Map<string, MediaRoom> = new Map();
   private qualityMetrics: Map<string, QualityMetric[]> = new Map();
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor() {}
 
   getWebRTCConfig(): WebRTCConfiguration {
     try {

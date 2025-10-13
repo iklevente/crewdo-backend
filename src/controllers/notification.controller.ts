@@ -97,6 +97,7 @@ export class NotificationController {
         'You can only access your own notifications unless you are an admin',
       );
     }
+
     return this.notificationService.findByUser(userId, req.user.id, queryDto);
   }
 

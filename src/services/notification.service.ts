@@ -298,23 +298,6 @@ export class NotificationService {
     });
   }
 
-  async createDeadlineNotification(
-    entityId: string,
-    entityType: string,
-    entityTitle: string,
-    userId: string,
-    daysLeft: number,
-  ): Promise<NotificationResponseDto> {
-    return this.create({
-      title: 'Deadline Approaching',
-      message: `${entityTitle} deadline is approaching (${daysLeft} days left)`,
-      type: NotificationType.DEADLINE_APPROACHING,
-      userId,
-      relatedEntityId: entityId,
-      relatedEntityType: entityType,
-    });
-  }
-
   private formatNotificationResponse(
     notification: Notification,
   ): NotificationResponseDto {

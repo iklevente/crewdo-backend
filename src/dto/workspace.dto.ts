@@ -58,13 +58,6 @@ export class UpdateWorkspaceDto {
   isPublic?: boolean;
 }
 
-export class AddWorkspaceMembersDto {
-  @ApiProperty({ example: ['user-id-1', 'user-id-2'] })
-  @IsArray()
-  @IsUUID('all', { each: true })
-  memberIds: string[];
-}
-
 export class WorkspaceResponseDto {
   @ApiProperty()
   id: string;

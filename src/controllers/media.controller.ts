@@ -38,7 +38,7 @@ import {
   QualityMetricsResponseDto,
 } from '../dto/media.dto';
 
-export interface WebRTCConfiguration {
+interface WebRTCConfiguration {
   iceServers: Array<{
     urls: string[];
     username?: string;
@@ -46,7 +46,7 @@ export interface WebRTCConfiguration {
   }>;
 }
 
-export interface MediaRoom {
+interface MediaRoom {
   id: string;
   participants: string[];
   isActive: boolean;
@@ -54,7 +54,7 @@ export interface MediaRoom {
   createdBy: string;
 }
 
-export interface QualityMetrics {
+interface QualityMetrics {
   bitrate: number;
   packetLoss: number;
   jitter: number;
