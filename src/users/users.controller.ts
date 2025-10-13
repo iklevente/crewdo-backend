@@ -52,13 +52,16 @@ export class UsersController {
     return await this.usersService.create(createUserDto);
   }
 
-  @ApiOperation({ summary: 'Get all users' })
+  @ApiOperation({ summary: 'Get all users (Admin only)' })
   @ApiResponse({
     status: 200,
     description: 'Users retrieved successfully',
     type: [UserResponseDto],
   })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin role required' })
   @Get()
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
   async findAll(): Promise<User[]> {
     return await this.usersService.findAll();
   }

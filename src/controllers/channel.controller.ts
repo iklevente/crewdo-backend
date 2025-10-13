@@ -149,10 +149,17 @@ export class ChannelController {
   }
 
   @Post(':id/members/:userId')
-  @ApiOperation({ summary: 'Add member to channel' })
+  @ApiOperation({
+    summary: 'Add member to channel (Admin/Project Manager only)',
+  })
   @ApiParam({ name: 'id', description: 'Channel ID' })
   @ApiParam({ name: 'userId', description: 'User ID to add' })
   @ApiResponse({ status: 201, description: 'Member added successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin or Project Manager role required',
+  })
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async addMember(
     @Param('id') id: string,
     @Param('userId') userId: string,
@@ -162,11 +169,18 @@ export class ChannelController {
   }
 
   @Delete(':id/members/:userId')
-  @ApiOperation({ summary: 'Remove member from channel' })
+  @ApiOperation({
+    summary: 'Remove member from channel (Admin/Project Manager only)',
+  })
   @ApiParam({ name: 'id', description: 'Channel ID' })
   @ApiParam({ name: 'userId', description: 'User ID to remove' })
   @ApiResponse({ status: 204, description: 'Member removed successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin or Project Manager role required',
+  })
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async removeMember(
     @Param('id') id: string,
     @Param('userId') userId: string,

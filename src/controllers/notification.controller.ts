@@ -10,6 +10,7 @@ import {
   UseGuards,
   Request,
   ParseUUIDPipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -57,7 +58,9 @@ export class NotificationController {
   }
 
   @Get('user/:userId')
-  @ApiOperation({ summary: 'Get notifications for a user' })
+  @ApiOperation({
+    summary: 'Get notifications for a user (own notifications or admin access)',
+  })
   @ApiParam({ name: 'userId', description: 'User ID (UUID)' })
   @ApiQuery({
     name: 'type',
@@ -75,6 +78,10 @@ export class NotificationController {
     status: 200,
     description: 'User notifications',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Can only access own notifications unless admin',
+  })
   async findByUser(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Query() queryDto: NotificationQueryDto,
@@ -84,17 +91,36 @@ export class NotificationController {
     total: number;
     unreadCount: number;
   }> {
+    // Allow users to access their own notifications or admins to access any notifications
+    if (userId !== req.user.id && req.user.role !== 'admin') {
+      throw new ForbiddenException(
+        'You can only access your own notifications unless you are an admin',
+      );
+    }
     return this.notificationService.findByUser(userId, req.user.id, queryDto);
   }
 
   @Get('user/:userId/unread-count')
-  @ApiOperation({ summary: 'Get unread notification count for a user' })
+  @ApiOperation({
+    summary:
+      'Get unread notification count for a user (own count or admin access)',
+  })
   @ApiParam({ name: 'userId', description: 'User ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Unread notification count' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Can only access own count unless admin',
+  })
   async getUnreadCount(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<{ count: number }> {
+    // Allow users to access their own unread count or admins to access any count
+    if (userId !== req.user.id && req.user.role !== 'admin') {
+      throw new ForbiddenException(
+        'You can only access your own notification count unless you are an admin',
+      );
+    }
     const count = await this.notificationService.getUnreadCount(
       userId,
       req.user.id,
@@ -184,16 +210,29 @@ export class NotificationController {
   }
 
   @Post('user/:userId/mark-all-read')
-  @ApiOperation({ summary: 'Mark all notifications as read for a user' })
+  @ApiOperation({
+    summary:
+      'Mark all notifications as read for a user (own notifications or admin access)',
+  })
   @ApiParam({ name: 'userId', description: 'User ID (UUID)' })
   @ApiResponse({
     status: 200,
     description: 'Number of notifications marked as read',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Can only mark own notifications unless admin',
+  })
   async markAllAsRead(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<{ markedCount: number }> {
+    // Allow users to mark their own notifications as read or admins to mark any notifications
+    if (userId !== req.user.id && req.user.role !== 'admin') {
+      throw new ForbiddenException(
+        'You can only mark your own notifications as read unless you are an admin',
+      );
+    }
     const markedCount = await this.notificationService.markAllAsRead(
       userId,
       req.user.id,

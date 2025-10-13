@@ -46,12 +46,19 @@ export class WorkspaceController {
   constructor(private readonly workspaceService: WorkspaceService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a new workspace' })
+  @ApiOperation({
+    summary: 'Create a new workspace (Admin/Project Manager only)',
+  })
   @ApiResponse({
     status: 201,
     description: 'Workspace created successfully',
     type: WorkspaceResponseDto,
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin or Project Manager role required',
+  })
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async create(
     @Body() createWorkspaceDto: CreateWorkspaceDto,
     @Request() req: AuthenticatedRequest,
@@ -117,10 +124,17 @@ export class WorkspaceController {
   }
 
   @Post(':id/members/:email')
-  @ApiOperation({ summary: 'Add member to workspace' })
+  @ApiOperation({
+    summary: 'Add member to workspace (Admin/Project Manager only)',
+  })
   @ApiParam({ name: 'id', description: 'Workspace ID' })
   @ApiParam({ name: 'email', description: 'User email to add' })
   @ApiResponse({ status: 201, description: 'Member added successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin or Project Manager role required',
+  })
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async addMember(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('email') email: string,
@@ -130,11 +144,18 @@ export class WorkspaceController {
   }
 
   @Delete(':id/members/:userId')
-  @ApiOperation({ summary: 'Remove member from workspace' })
+  @ApiOperation({
+    summary: 'Remove member from workspace (Admin/Project Manager only)',
+  })
   @ApiParam({ name: 'id', description: 'Workspace ID' })
   @ApiParam({ name: 'userId', description: 'User ID to remove' })
   @ApiResponse({ status: 204, description: 'Member removed successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Admin or Project Manager role required',
+  })
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async removeMember(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('userId', ParseUUIDPipe) userId: string,
