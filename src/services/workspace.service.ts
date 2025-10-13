@@ -14,7 +14,6 @@ import {
   Project,
   Call,
   MessageReadReceipt,
-  ScrumBoardEmbed,
   ChannelType,
   ChannelVisibility,
 } from '../entities/index';
@@ -33,7 +32,6 @@ export class WorkspaceService {
   private messageRepository: Repository<Message>;
   private callRepository: Repository<Call>;
   private messageReadReceiptRepository: Repository<MessageReadReceipt>;
-  private scrumBoardEmbedRepository: Repository<ScrumBoardEmbed>;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -47,8 +45,6 @@ export class WorkspaceService {
     this.callRepository = this.dataSource.getRepository(Call);
     this.messageReadReceiptRepository =
       this.dataSource.getRepository(MessageReadReceipt);
-    this.scrumBoardEmbedRepository =
-      this.dataSource.getRepository(ScrumBoardEmbed);
   }
 
   async create(
@@ -193,9 +189,6 @@ export class WorkspaceService {
       await this.messageReadReceiptRepository.delete({
         channelId: In(channelIds),
       });
-      await this.scrumBoardEmbedRepository.delete({
-        channelId: In(channelIds),
-      });
       await this.callRepository.delete({ channelId: In(channelIds) });
       await this.messageRepository.delete({ channelId: In(channelIds) });
     }
@@ -331,14 +324,12 @@ export class WorkspaceService {
         firstName: workspace.owner.firstName,
         lastName: workspace.owner.lastName,
         email: workspace.owner.email,
-        presence: workspace.owner.presence as unknown,
       },
       members: workspace.members.map((member) => ({
         id: member.id,
         firstName: member.firstName,
         lastName: member.lastName,
         email: member.email,
-        presence: member.presence as unknown,
         joinedAt: member.createdAt, // You might want to add a separate joinedAt field
       })),
     };

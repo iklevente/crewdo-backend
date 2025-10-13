@@ -11,6 +11,8 @@ import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
 import { ChatModule } from './modules/chat.module';
+import { AttachmentModule } from './modules/attachment.module';
+import { NotificationModule } from './modules/notification.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -30,6 +32,8 @@ import configuration from './config/configuration';
     TasksModule,
     CommentsModule,
     ChatModule,
+    AttachmentModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -74,7 +74,7 @@ export class UserActivityDto {
   userId: string;
 
   @ApiProperty()
-  activity: 'typing' | 'recording' | 'uploading' | 'idle';
+  activity: 'typing' | 'uploading' | 'idle';
 
   @ApiPropertyOptional()
   channelId?: string;

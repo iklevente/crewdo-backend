@@ -13,7 +13,10 @@ import {
   Query,
   ParseUUIDPipe,
   ParseIntPipe,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -21,6 +24,7 @@ import {
   ApiResponse,
   ApiParam,
   ApiQuery,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { MessageService } from '../services/message.service';
 import { ChannelService } from '../services/channel.service';
@@ -296,5 +300,26 @@ export class MessageController {
   ): Promise<Record<string, { readBy: string[]; readCount: number }>> {
     const messageIdArray = messageIds.split(',').filter(Boolean);
     return this.channelService.getMessageReadStatus(channelId, messageIdArray);
+  }
+
+  @Post('channel/:channelId/attachments')
+  @ApiOperation({ summary: 'Upload attachments for messages in a channel' })
+  @ApiParam({ name: 'channelId', description: 'Channel ID' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({
+    status: 201,
+    description: 'Files uploaded successfully',
+  })
+  @UseInterceptors(FilesInterceptor('files', 10)) // Allow up to 10 files
+  async uploadMessageAttachments(
+    @Param('channelId', ParseUUIDPipe) channelId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Request() req: AuthenticatedRequest,
+  ): Promise<{ attachmentIds: string[] }> {
+    return this.messageService.uploadMessageAttachments(
+      files,
+      channelId,
+      req.user.id,
+    );
   }
 }

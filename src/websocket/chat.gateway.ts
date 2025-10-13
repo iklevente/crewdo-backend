@@ -12,7 +12,6 @@ import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { MessageService } from '../services/message.service';
 import { MediaService } from '../services/media.service';
-import { RecordingService } from '../services/recording.service';
 import { ChannelService } from '../services/channel.service';
 import { CreateMessageDto } from '../dto/message.dto';
 
@@ -47,7 +46,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private messageService: MessageService,
     private jwtService: JwtService,
     private mediaService: MediaService,
-    private recordingService: RecordingService,
     private channelService: ChannelService,
   ) {}
 
@@ -519,60 +517,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', {
         message: 'Failed to stop screen sharing',
         error: errorMessage,
-      });
-    }
-  }
-
-  @SubscribeMessage('recording_start')
-  handleRecordingStart(
-    @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody()
-    data: {
-      callId: string;
-      format?: string;
-      quality?: 'low' | 'medium' | 'high';
-    },
-  ) {
-    try {
-      const recording = this.recordingService.startRecording(data.callId, {
-        format: data.format,
-        quality: data.quality,
-      });
-
-      client.emit('recording_started', { recording });
-      client.to(`call_${data.callId}`).emit('recording_notification', {
-        message: 'Recording started',
-        recordingId: recording.id,
-        startedBy: client.userId,
-      });
-    } catch (error) {
-      client.emit('error', {
-        message: 'Failed to start recording',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-
-  @SubscribeMessage('recording_stop')
-  async handleRecordingStop(
-    @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { recordingId: string; callId: string },
-  ) {
-    try {
-      const recording = await this.recordingService.stopRecording(
-        data.recordingId,
-      );
-
-      client.emit('recording_stopped', { recording });
-      client.to(`call_${data.callId}`).emit('recording_notification', {
-        message: 'Recording stopped',
-        recordingId: recording.id,
-        stoppedBy: client.userId,
-      });
-    } catch (error) {
-      client.emit('error', {
-        message: 'Failed to stop recording',
-        error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   }

@@ -5,14 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
-  OneToOne,
   ManyToMany,
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { Project } from './project.entity';
 import { Task } from './task.entity';
 import { Comment } from './comment.entity';
-import { UserPresence } from './user-presence.entity';
 
 export enum UserRole {
   ADMIN = 'admin',
@@ -98,10 +96,4 @@ export class User {
 
   @OneToMany(() => Comment, (comment) => comment.author)
   comments: Comment[];
-
-  // Add presence relationship
-  @OneToOne('UserPresence', (presence: UserPresence) => presence.user, {
-    nullable: true,
-  })
-  presence: any;
 }

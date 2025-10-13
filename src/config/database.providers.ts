@@ -14,8 +14,6 @@ import {
   MessageReadReceipt,
   Call,
   CallParticipant,
-  UserPresence,
-  ScrumBoardEmbed,
 } from '../entities';
 
 export const databaseProviders = [
@@ -43,8 +41,6 @@ export const databaseProviders = [
           MessageReadReceipt,
           Call,
           CallParticipant,
-          UserPresence,
-          ScrumBoardEmbed,
         ],
         synchronize: process.env.NODE_ENV !== 'production', // Only in development
         logging: process.env.NODE_ENV === 'development',

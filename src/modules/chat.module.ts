@@ -7,9 +7,8 @@ import { WorkspaceService } from '../services/workspace.service';
 import { ChannelService } from '../services/channel.service';
 import { MessageService } from '../services/message.service';
 import { CallService } from '../services/call.service';
-import { PresenceService } from '../services/presence.service';
 import { MediaService } from '../services/media.service';
-import { RecordingService } from '../services/recording.service';
+import { AttachmentService } from '../services/attachment.service';
 
 // Controllers
 import { WorkspaceController } from '../controllers/workspace.controller';
@@ -41,9 +40,8 @@ import { ChatGateway } from '../websocket/chat.gateway';
     ChannelService,
     MessageService,
     CallService,
-    PresenceService,
     MediaService,
-    RecordingService,
+    AttachmentService,
     ChatGateway,
   ],
   exports: [
@@ -51,9 +49,8 @@ import { ChatGateway } from '../websocket/chat.gateway';
     ChannelService,
     MessageService,
     CallService,
-    PresenceService,
     MediaService,
-    RecordingService,
+    AttachmentService,
   ],
 })
 export class ChatModule {}

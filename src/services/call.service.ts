@@ -180,7 +180,6 @@ export class CallService {
         scheduledStartTime: scheduleCallDto.scheduledStartTime,
         scheduledEndTime: scheduleCallDto.scheduledEndTime,
         description: scheduleCallDto.description,
-        isRecorded: scheduleCallDto.isRecorded,
       }),
     });
 
@@ -420,7 +419,6 @@ export class CallService {
 
     interface CallSettings {
       description?: string;
-      isRecorded?: boolean;
       scheduledStartTime?: string | number;
       scheduledEndTime?: string | number;
     }
@@ -435,7 +433,6 @@ export class CallService {
       description: settings.description,
       type: call.type,
       status: this.mapEntityStatusToDto(call.status),
-      isRecorded: settings.isRecorded || false,
       createdAt: call.startedAt, // Use startedAt as createdAt
       updatedAt: call.updatedAt,
       startedAt: call.startedAt,

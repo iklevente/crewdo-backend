@@ -77,34 +77,6 @@ export class ScreenShareDto {
   constraints?: any;
 }
 
-export class StartRecordingDto {
-  @ApiPropertyOptional({
-    example: 'high',
-    description: 'Recording quality',
-    enum: ['low', 'medium', 'high'],
-  })
-  @IsOptional()
-  @IsString()
-  quality?: 'low' | 'medium' | 'high';
-
-  @ApiPropertyOptional({
-    example: 'mp4',
-    description: 'Recording format',
-  })
-  @IsOptional()
-  @IsString()
-  format?: string;
-}
-
-export class StopRecordingDto {
-  @ApiProperty({
-    example: 'recording-uuid-123',
-    description: 'ID of the recording to stop',
-  })
-  @IsString()
-  recordingId: string;
-}
-
 export class QualityMetricsDto {
   @ApiProperty({
     example: '6CFA423E-F36B-1410-83B4-001C5639B45F',
@@ -141,26 +113,6 @@ export class MediaRoomResponseDto {
 
   @ApiProperty({ example: true })
   isActive: boolean;
-
-  @ApiProperty({ example: '2025-10-12T16:38:27.969Z' })
-  createdAt: Date;
-}
-
-export class RecordingInfoResponseDto {
-  @ApiProperty({ example: 'recording-uuid-123' })
-  id: string;
-
-  @ApiProperty({ example: 'room_123456789_abc' })
-  roomId: string;
-
-  @ApiProperty({ example: 'recording_20251012_163827.mp4' })
-  fileName: string;
-
-  @ApiProperty({ example: 3600 })
-  duration: number;
-
-  @ApiProperty({ example: 1048576 })
-  size: number;
 
   @ApiProperty({ example: '2025-10-12T16:38:27.969Z' })
   createdAt: Date;

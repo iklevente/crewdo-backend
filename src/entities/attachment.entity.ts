@@ -9,6 +9,7 @@ import {
 import { User } from './user.entity';
 import { Task } from './task.entity';
 import { Project } from './project.entity';
+import { Message } from './message.entity';
 
 export enum AttachmentType {
   DOCUMENT = 'document',
@@ -71,12 +72,12 @@ export class Attachment {
   projectId: string;
 
   // Add message relationship
-  @ManyToOne('Message', {
+  @ManyToOne(() => Message, (message) => message.attachments, {
     nullable: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'messageId' })
-  message: any;
+  message: Message;
 
   @Column('uuid', { nullable: true })
   messageId: string;

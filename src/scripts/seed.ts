@@ -3,10 +3,8 @@ import * as bcrypt from 'bcrypt';
 import { AppModule } from '../app.module';
 import { UsersService } from '../users/users.service';
 import { WorkspaceService } from '../services/workspace.service';
-import { PresenceService } from '../services/presence.service';
 import { UserRole } from '../entities/user.entity';
 import { WorkspaceType } from '../entities/workspace.entity';
-import { PresenceStatus } from '../dto/presence.dto';
 
 interface SeedWorkspace {
   id: string;
@@ -21,7 +19,6 @@ async function seed() {
   const workspaceService = app.get(WorkspaceService);
   // const channelService = app.get(ChannelService); // Commented out - service missing
   // const messageService = app.get(MessageService); // Commented out - not used without channels
-  const presenceService = app.get(PresenceService);
 
   try {
     // Check if admin user already exists
@@ -246,29 +243,6 @@ async function seed() {
           );
         }
         */
-      }
-
-      // Set up user presence
-      console.log('👤 Setting up user presence...');
-      try {
-        await presenceService.setUserOnline(admin.id);
-        await presenceService.setUserOnline(pm.id);
-        await presenceService.setUserOnline(member.id);
-
-        // Set custom statuses
-        await presenceService.updatePresence(pm.id, {
-          status: PresenceStatus.ONLINE,
-          customStatus: 'Planning sprint',
-        });
-
-        await presenceService.updatePresence(member.id, {
-          status: PresenceStatus.ONLINE,
-          customStatus: 'Coding new features',
-        });
-
-        console.log('✅ User presence set up');
-      } catch (error) {
-        console.log('ℹ️ Presence setup error:', (error as Error).message);
       }
     }
 

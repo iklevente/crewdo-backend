@@ -12,6 +12,8 @@ import {
   Channel,
   MessageReaction,
   MessageType,
+  Attachment,
+  AttachmentType,
 } from '../entities/index';
 import {
   CreateMessageDto,
@@ -21,6 +23,7 @@ import {
   MessageSearchDto,
   MessageHistoryDto,
 } from '../dto/message.dto';
+import { AttachmentService } from './attachment.service';
 
 @Injectable()
 export class MessageService {
@@ -28,16 +31,19 @@ export class MessageService {
   private userRepository: Repository<User>;
   private channelRepository: Repository<Channel>;
   private messageReactionRepository: Repository<MessageReaction>;
+  private attachmentRepository: Repository<Attachment>;
 
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
+    private readonly attachmentService: AttachmentService,
   ) {
     this.messageRepository = this.dataSource.getRepository(Message);
     this.userRepository = this.dataSource.getRepository(User);
     this.channelRepository = this.dataSource.getRepository(Channel);
     this.messageReactionRepository =
       this.dataSource.getRepository(MessageReaction);
+    this.attachmentRepository = this.dataSource.getRepository(Attachment);
   }
 
   async create(
@@ -116,16 +122,48 @@ export class MessageService {
       metadata: createMessageDto.embedData
         ? JSON.stringify(createMessageDto.embedData)
         : undefined,
-      // TODO: Handle attachments
     });
 
     const savedMessage = await this.messageRepository.save(message);
+
+    // Handle attachments if provided
+    if (
+      createMessageDto.attachmentIds &&
+      createMessageDto.attachmentIds.length > 0
+    ) {
+      for (const attachmentId of createMessageDto.attachmentIds) {
+        try {
+          // Verify attachment exists and user has access
+          await this.attachmentService.findById(attachmentId, authorId);
+
+          // Associate attachment with message
+          await this.attachmentRepository.update(attachmentId, {
+            messageId: savedMessage.id,
+          });
+        } catch (error) {
+          // Log error but don't fail message creation
+          console.warn(
+            `Failed to attach file ${attachmentId} to message ${savedMessage.id}:`,
+            (error as Error).message,
+          );
+        }
+      }
+    }
 
     // Update channel's updated timestamp
     channel.updatedAt = new Date();
     await this.channelRepository.save(channel);
 
-    return this.formatMessageResponse(savedMessage, authorId);
+    // Reload message with attachments
+    const messageWithAttachments = await this.messageRepository.findOne({
+      where: { id: savedMessage.id },
+      relations: ['author', 'channel', 'attachments'],
+    });
+
+    return this.formatMessageResponse(
+      messageWithAttachments || savedMessage,
+      authorId,
+    );
   }
 
   async findByChannel(
@@ -534,6 +572,83 @@ export class MessageService {
     return pinnedMessages.map((message) =>
       this.formatMessageResponse(message, userId),
     );
+  }
+
+  async uploadMessageAttachments(
+    files: Express.Multer.File[],
+    channelId: string,
+    userId: string,
+  ): Promise<{ attachmentIds: string[] }> {
+    const channel = await this.channelRepository.findOne({
+      where: { id: channelId },
+      relations: ['members'],
+    });
+
+    if (!channel) {
+      throw new NotFoundException('Channel not found');
+    }
+
+    // Check if user is member of channel
+    const isMember = channel.members.some((member) => member.id === userId);
+    if (!isMember) {
+      throw new ForbiddenException('Access denied to this channel');
+    }
+
+    const attachmentIds: string[] = [];
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    for (const file of files) {
+      try {
+        // Create attachment directly for messages
+        const fileName = `${Date.now()}-${file.originalname}`;
+        const attachment = this.attachmentRepository.create({
+          originalName: file.originalname,
+          fileName: fileName,
+          filePath: `uploads/messages/${fileName}`,
+          mimeType: file.mimetype,
+          fileSize: file.size,
+          type: this.getAttachmentType(file.mimetype),
+          uploadedById: user.id,
+          // messageId will be set when message is created
+        });
+
+        // Save file to filesystem
+        const fs = await import('fs');
+        const path = await import('path');
+        const uploadDir = path.join(process.cwd(), 'uploads', 'messages');
+
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        const filePath = path.join(uploadDir, fileName);
+        fs.writeFileSync(filePath, file.buffer);
+        const savedAttachment =
+          await this.attachmentRepository.save(attachment);
+        attachmentIds.push(savedAttachment.id);
+      } catch (error) {
+        console.error(`Failed to upload file ${file.originalname}:`, error);
+        // Continue with other files
+      }
+    }
+
+    return { attachmentIds };
+  }
+
+  private getAttachmentType(mimeType: string): AttachmentType {
+    if (mimeType.startsWith('image/')) return AttachmentType.IMAGE;
+    if (mimeType.startsWith('video/')) return AttachmentType.VIDEO;
+    if (mimeType.startsWith('audio/')) return AttachmentType.AUDIO;
+    if (mimeType === 'application/pdf') return AttachmentType.DOCUMENT;
+    if (mimeType.includes('text/') || mimeType.includes('document'))
+      return AttachmentType.DOCUMENT;
+    return AttachmentType.OTHER;
   }
 
   private formatMessageResponse(

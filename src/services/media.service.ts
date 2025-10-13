@@ -38,16 +38,6 @@ export interface QualityMetric {
   timestamp: Date;
 }
 
-export interface RecordingInfo {
-  recordingId: string;
-  filename: string;
-  startTime: Date;
-  endTime?: Date;
-  size?: number;
-  url?: string;
-  status?: string;
-}
-
 @Injectable()
 export class MediaService {
   private readonly logger = new Logger(MediaService.name);

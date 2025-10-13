@@ -55,7 +55,7 @@ export class Call {
   screenSharingUserId: string;
 
   @Column('text', { nullable: true })
-  settings: string; // JSON string for call-specific settings like video quality, recording, etc.
+  settings: string; // JSON string for call-specific settings like video quality, etc.
 
   @CreateDateColumn()
   startedAt: Date;

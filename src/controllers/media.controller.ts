@@ -18,11 +18,8 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { MediaService } from '../services/media.service';
-import { RecordingService } from '../services/recording.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../entities';
 
 interface AuthenticatedRequest {
   user: {
@@ -36,11 +33,8 @@ import {
   JoinRoomDto,
   LeaveRoomDto,
   ScreenShareDto,
-  StartRecordingDto,
-  StopRecordingDto,
   QualityMetricsDto,
   MediaRoomResponseDto,
-  RecordingInfoResponseDto,
   QualityMetricsResponseDto,
 } from '../dto/media.dto';
 
@@ -60,15 +54,6 @@ export interface MediaRoom {
   createdBy: string;
 }
 
-export interface RecordingInfo {
-  id: string;
-  roomId: string;
-  fileName: string;
-  duration: number;
-  size: number;
-  createdAt: Date;
-}
-
 export interface QualityMetrics {
   bitrate: number;
   packetLoss: number;
@@ -84,10 +69,7 @@ export interface QualityMetrics {
 export class MediaController {
   private readonly logger = new Logger(MediaController.name);
 
-  constructor(
-    private readonly mediaService: MediaService,
-    private readonly recordingService: RecordingService,
-  ) {}
+  constructor(private readonly mediaService: MediaService) {}
 
   @Get('webrtc-config')
   @ApiOperation({ summary: 'Get WebRTC configuration for clients' })
@@ -329,153 +311,6 @@ export class MediaController {
       this.logger.error(`Failed to stop screen share: ${error}`);
       throw new HttpException(
         'Failed to stop screen sharing',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Post('rooms/:roomId/recording/start')
-  @ApiOperation({ summary: 'Start recording a media room' })
-  @ApiResponse({ status: 200, description: 'Recording started' })
-  startRecording(
-    @Param('roomId') roomId: string,
-    @Body() recordingDto: StartRecordingDto,
-  ): Promise<{ success: boolean; recordingId: string }> {
-    try {
-      const recording = this.recordingService.startRecording(roomId, {
-        quality: recordingDto.quality as 'low' | 'medium' | 'high',
-        format: recordingDto.format,
-      });
-      this.logger.log(`Started recording for room ${roomId}: ${recording.id}`);
-      return Promise.resolve({ success: true, recordingId: recording.id });
-    } catch (error) {
-      this.logger.error(`Failed to start recording: ${error}`);
-      throw new HttpException(
-        'Failed to start recording',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Post('rooms/:roomId/recording/stop')
-  @ApiOperation({ summary: 'Stop recording a media room' })
-  @ApiResponse({ status: 200, description: 'Recording stopped' })
-  async stopRecording(
-    @Param('roomId') roomId: string,
-    @Body() stopDto: StopRecordingDto,
-  ): Promise<{ success: boolean; fileInfo?: any }> {
-    try {
-      const recording = await this.recordingService.stopRecording(
-        stopDto.recordingId,
-      );
-      this.logger.log(
-        `Stopped recording ${stopDto.recordingId} for room ${roomId}`,
-      );
-
-      // Extract useful file info from the recording
-      const fileInfo = {
-        id: recording.id,
-        fileName: recording.filename,
-        filePath: recording.filePath,
-        size: recording.size,
-        duration: recording.duration,
-        status: recording.status,
-        url: recording.url,
-        format: recording.metadata?.format,
-      };
-
-      return { success: true, fileInfo };
-    } catch (error) {
-      this.logger.error(`Failed to stop recording: ${error}`);
-      throw new HttpException(
-        'Failed to stop recording',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Get('recordings')
-  @ApiOperation({ summary: 'Get all recordings' })
-  @ApiResponse({
-    status: 200,
-    description: 'Recordings list returned',
-    type: [RecordingInfoResponseDto],
-  })
-  async getRecordings(): Promise<RecordingInfo[]> {
-    try {
-      const result = await this.recordingService.getRecordings();
-      const recordings = result.recordings.map((rec) => ({
-        id: rec.id,
-        roomId: rec.callId,
-        fileName: rec.filename,
-        duration: rec.duration,
-        size: rec.size,
-        createdAt: rec.startTime,
-      }));
-      this.logger.log(`Retrieved ${recordings.length} recordings`);
-      return recordings;
-    } catch (error) {
-      this.logger.error(`Failed to get recordings: ${error}`);
-      throw new HttpException(
-        'Failed to get recordings',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Get('recordings/:recordingId')
-  @ApiOperation({ summary: 'Get specific recording details' })
-  @ApiResponse({ status: 200, description: 'Recording details returned' })
-  async getRecording(
-    @Param('recordingId') recordingId: string,
-  ): Promise<RecordingInfo> {
-    try {
-      const recording = await this.recordingService.getRecording(recordingId);
-      if (!recording) {
-        throw new HttpException('Recording not found', HttpStatus.NOT_FOUND);
-      }
-      this.logger.log(`Retrieved recording details for: ${recordingId}`);
-      return {
-        id: recording.id,
-        roomId: recording.callId,
-        fileName: recording.filename,
-        duration: recording.duration,
-        size: recording.size,
-        createdAt: recording.startTime,
-      };
-    } catch (error) {
-      this.logger.error(`Failed to get recording ${recordingId}: ${error}`);
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new HttpException(
-        'Failed to get recording details',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  // Note: Processing functionality is handled internally by the service
-
-  @Delete('recordings/:recordingId')
-  @ApiOperation({ summary: 'Delete a recording' })
-  @ApiResponse({ status: 200, description: 'Recording deleted' })
-  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
-  deleteRecording(
-    @Param('recordingId') recordingId: string,
-    @Request() req: AuthenticatedRequest,
-  ): Promise<{ success: boolean }> {
-    try {
-      this.logger.log(
-        `Admin ${req.user.id} deleting recording: ${recordingId}`,
-      );
-      void this.recordingService.deleteRecording(recordingId);
-      this.logger.log(`Deleted recording ${recordingId}`);
-      return Promise.resolve({ success: true });
-    } catch (error) {
-      this.logger.error(`Failed to delete recording: ${error}`);
-      throw new HttpException(
-        'Failed to delete recording',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

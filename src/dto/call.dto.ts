@@ -36,11 +36,6 @@ export class StartCallDto {
   @IsString()
   title?: string;
 
-  @ApiPropertyOptional({ example: true })
-  @IsOptional()
-  @IsBoolean()
-  isRecorded?: boolean;
-
   @ApiPropertyOptional({ example: ['user-id-1', 'user-id-2'] })
   @IsOptional()
   @IsArray()
@@ -80,11 +75,6 @@ export class ScheduleCallDto {
   @IsArray()
   @IsUUID('all', { each: true })
   invitedUserIds?: string[];
-
-  @ApiPropertyOptional({ example: true })
-  @IsOptional()
-  @IsBoolean()
-  isRecorded?: boolean;
 }
 
 export class JoinCallDto {
@@ -142,9 +132,6 @@ export class CallResponseDto {
   status: CallStatus;
 
   @ApiProperty()
-  isRecorded: boolean;
-
-  @ApiProperty()
   createdAt: Date;
 
   @ApiProperty()
@@ -194,9 +181,6 @@ export class CallResponseDto {
     isHandRaised: boolean;
     connectionQuality: string;
   }>;
-
-  @ApiPropertyOptional()
-  recordingUrl?: string;
 
   @ApiPropertyOptional()
   duration?: number; // in seconds
