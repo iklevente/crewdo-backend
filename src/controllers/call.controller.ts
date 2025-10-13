@@ -73,11 +73,16 @@ export class CallController {
   @ApiOperation({ summary: 'Join a call' })
   @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Successfully joined call' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to join this call',
+  })
   async joinCall(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() joinCallDto: JoinCallDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
+    // Service validates user has permission to join this call
     return this.callService.joinCall(id, joinCallDto, req.user.id);
   }
 
@@ -85,10 +90,15 @@ export class CallController {
   @ApiOperation({ summary: 'Leave a call' })
   @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Left call successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Not in this call or no access',
+  })
   async leaveCall(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
+    // Service validates user is in the call and can leave
     return this.callService.leaveCall(id, req.user.id);
   }
 
@@ -96,10 +106,15 @@ export class CallController {
   @ApiOperation({ summary: 'End a call (initiator only)' })
   @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Call ended successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Only call initiator can end the call',
+  })
   async endCall(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
+    // Service validates user is the call initiator
     return this.callService.endCall(id, req.user.id);
   }
 
@@ -119,10 +134,15 @@ export class CallController {
   @ApiOperation({ summary: 'Get calls for a channel' })
   @ApiParam({ name: 'channelId', description: 'Channel ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Calls retrieved successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this channel',
+  })
   async getCallsForChannel(
     @Param('channelId', ParseUUIDPipe) channelId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<CallResponseDto[]> {
+    // Service validates user has access to the channel
     return this.callService.findByChannel(channelId, req.user.id);
   }
 
@@ -134,10 +154,15 @@ export class CallController {
     description: 'Call details',
     type: CallResponseDto,
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this call',
+  })
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<CallResponseDto> {
+    // Service validates user has access to view this call
     return this.callService.findOne(id, req.user.id);
   }
 }

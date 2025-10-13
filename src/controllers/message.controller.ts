@@ -93,6 +93,10 @@ export class MessageController {
     status: 200,
     description: 'List of messages with pagination info',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this channel',
+  })
   async findByChannel(
     @Param('channelId', ParseUUIDPipe) channelId: string,
     @Query('cursor') cursor?: string,
@@ -123,6 +127,7 @@ export class MessageController {
       limit,
       order,
     };
+    // Service validates user has access to the channel
     return this.messageService.findByChannel(
       channelId,
       req?.user.id || '',
@@ -179,10 +184,15 @@ export class MessageController {
     description: 'Search results',
     type: [MessageResponseDto],
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to specified channels',
+  })
   async search(
     @Query() searchDto: MessageSearchDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto[]> {
+    // Service validates user has access to channels being searched
     return this.messageService.search(searchDto, req.user.id);
   }
 
@@ -194,10 +204,15 @@ export class MessageController {
     description: 'List of pinned messages',
     type: [MessageResponseDto],
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this channel',
+  })
   async getPinnedMessages(
     @Param('channelId', ParseUUIDPipe) channelId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto[]> {
+    // Service validates user has access to the channel
     return this.messageService.getPinnedMessages(channelId, req.user.id);
   }
 
@@ -310,12 +325,17 @@ export class MessageController {
     status: 201,
     description: 'Files uploaded successfully',
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to upload to this channel',
+  })
   @UseInterceptors(FilesInterceptor('files', 10)) // Allow up to 10 files
   async uploadMessageAttachments(
     @Param('channelId', ParseUUIDPipe) channelId: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Request() req: AuthenticatedRequest,
   ): Promise<{ attachmentIds: string[] }> {
+    // Service validates user has access to upload to this channel
     return this.messageService.uploadMessageAttachments(
       files,
       channelId,

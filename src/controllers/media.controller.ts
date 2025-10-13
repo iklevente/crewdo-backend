@@ -238,12 +238,18 @@ export class MediaController {
     summary: 'Delete a media room (creator, admin, or project manager only)',
   })
   @ApiResponse({ status: 200, description: 'Media room deleted' })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Forbidden - Only room creator, admin, or project manager can delete',
+  })
   deleteRoom(
     @Param('roomId') roomId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<{ success: boolean }> {
     try {
-      // Check if user has permission to delete this room
+      // Service validates user has permission to delete this room
+      // (room creator, admin, or project manager)
       if (
         !this.mediaService.canDeleteRoom(roomId, req.user.id, req.user.role)
       ) {

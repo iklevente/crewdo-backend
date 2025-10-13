@@ -81,10 +81,15 @@ export class AttachmentController {
     description: 'Attachment details',
     type: AttachmentResponseDto,
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this attachment',
+  })
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<AttachmentResponseDto> {
+    // Service validates user has access to the attachment
     return this.attachmentService.findById(id, req.user.id);
   }
 
@@ -92,11 +97,16 @@ export class AttachmentController {
   @ApiOperation({ summary: 'Download attachment file' })
   @ApiParam({ name: 'id', description: 'Attachment ID (UUID)' })
   @ApiResponse({ status: 200, description: 'File stream' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this attachment',
+  })
   async downloadFile(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
     @Response({ passthrough: true }) res: ExpressResponse,
   ): Promise<StreamableFile> {
+    // Service validates user has access to the attachment before providing stream
     const { stream, filename, mimeType } =
       await this.attachmentService.getFileStream(id, req.user.id);
 
@@ -114,10 +124,15 @@ export class AttachmentController {
     description: 'List of task attachments',
     type: [AttachmentResponseDto],
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this task',
+  })
   async findByTask(
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<AttachmentResponseDto[]> {
+    // Service validates user has access to the task
     return this.attachmentService.findByTask(taskId, req.user.id);
   }
 
@@ -129,10 +144,15 @@ export class AttachmentController {
     description: 'List of project attachments',
     type: [AttachmentResponseDto],
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this project',
+  })
   async findByProject(
     @Param('projectId', ParseUUIDPipe) projectId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<AttachmentResponseDto[]> {
+    // Service validates user has access to the project
     return this.attachmentService.findByProject(projectId, req.user.id);
   }
 
@@ -144,10 +164,15 @@ export class AttachmentController {
     description: 'List of message attachments',
     type: [AttachmentResponseDto],
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - No access to this message',
+  })
   async findByMessage(
     @Param('messageId', ParseUUIDPipe) messageId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<AttachmentResponseDto[]> {
+    // Service validates user has access to the message
     return this.attachmentService.findByMessage(messageId, req.user.id);
   }
 
@@ -155,10 +180,16 @@ export class AttachmentController {
   @ApiOperation({ summary: 'Delete an attachment' })
   @ApiParam({ name: 'id', description: 'Attachment ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Attachment deleted successfully' })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Forbidden - Can only delete own attachments or admin access required',
+  })
   async deleteAttachment(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<{ message: string }> {
+    // Service validates user has permission to delete this attachment
     await this.attachmentService.deleteAttachment(id, req.user.id);
     return { message: 'Attachment deleted successfully' };
   }
