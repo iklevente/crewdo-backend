@@ -24,6 +24,7 @@ export interface MediaRoom {
   maxParticipants: number;
   screenShareActive?: boolean;
   screenShareUserId?: string | null;
+  createdBy: string; // User ID of the room creator
 }
 
 export interface QualityMetric {
@@ -75,17 +76,19 @@ export class MediaService {
 
   createMediaRoom(
     name: string,
+    createdBy: string,
     options?: { maxParticipants?: number },
   ): string {
     try {
       const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const room = {
+      const room: MediaRoom = {
         id: roomId,
         name,
         participants: [],
         isActive: true,
         createdAt: new Date(),
         maxParticipants: options?.maxParticipants || 10,
+        createdBy,
       };
 
       this.mediaRooms.set(roomId, room);
@@ -183,20 +186,31 @@ export class MediaService {
     }
   }
 
+  canDeleteRoom(roomId: string, userId: string, userRole: string): boolean {
+    const room = this.mediaRooms.get(roomId);
+    if (!room) {
+      return false;
+    }
+
+    // Allow deletion if user is the creator, admin, or project manager
+    return (
+      room.createdBy === userId ||
+      userRole === 'admin' ||
+      userRole === 'project_manager'
+    );
+  }
+
   deleteRoom(roomId: string): void {
     try {
-      const room = this.mediaRooms.get(roomId);
-      if (!room) {
-        this.logger.warn(`Room not found: ${roomId}`);
-        return;
+      if (!this.mediaRooms.has(roomId)) {
+        throw new Error(`Room ${roomId} not found`);
       }
 
-      room.isActive = false;
       this.mediaRooms.delete(roomId);
-      this.logger.log(`Deleted room: ${roomId}`);
+      this.logger.log(`Deleted media room: ${roomId}`);
     } catch (error) {
-      this.logger.error(`Failed to delete room: ${error}`);
-      throw new Error('Failed to delete room');
+      this.logger.error(`Failed to delete media room ${roomId}: ${error}`);
+      throw new Error(`Failed to delete media room: ${error}`);
     }
   }
 

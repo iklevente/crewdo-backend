@@ -159,12 +159,11 @@ export class MessageService {
       .createQueryBuilder('message')
       .leftJoinAndSelect('message.author', 'author')
       .leftJoinAndSelect('message.channel', 'channel')
-      .leftJoinAndSelect('message.parentMessage', 'parentMessage')
-      .leftJoinAndSelect('parentMessage.author', 'parentAuthor')
+      .leftJoinAndSelect('message.replyTo', 'replyTo')
+      .leftJoinAndSelect('replyTo.author', 'replyToAuthor')
       .leftJoinAndSelect('message.attachments', 'attachments')
       .leftJoinAndSelect('message.reactions', 'reactions')
       .leftJoinAndSelect('reactions.user', 'reactionUser')
-      .leftJoinAndSelect('message.mentionedUsers', 'mentionedUsers')
       .where('message.channelId = :channelId', { channelId })
       .andWhere('message.isDeleted = :isDeleted', { isDeleted: false })
       .orderBy('message.createdAt', order === 'desc' ? 'DESC' : 'ASC')
@@ -242,7 +241,6 @@ export class MessageService {
         'attachments',
         'reactions',
         'reactions.user',
-        'mentionedUsers',
       ],
       order: { createdAt: 'ASC' },
     });
@@ -388,19 +386,37 @@ export class MessageService {
     searchDto: MessageSearchDto,
     userId: string,
   ): Promise<MessageResponseDto[]> {
+    // First, get channels the user has access to
+    const userChannels = await this.dataSource
+      .getRepository(Channel)
+      .createQueryBuilder('channel')
+      .leftJoin('channel.members', 'members')
+      .where('members.id = :userId', { userId })
+      .select(['channel.id'])
+      .getMany();
+
+    const channelIds = userChannels.map((ch) => ch.id);
+
+    if (channelIds.length === 0) {
+      return []; // User has no channels, return empty
+    }
+
+    // Build the message query with simpler joins
     let queryBuilder = this.messageRepository
       .createQueryBuilder('message')
       .leftJoinAndSelect('message.author', 'author')
       .leftJoinAndSelect('message.channel', 'channel')
-      .leftJoinAndSelect('channel.members', 'members')
       .leftJoinAndSelect('message.attachments', 'attachments')
-      .where('members.id = :userId', { userId })
+      .where('message.channelId IN (:...channelIds)', { channelIds })
       .andWhere('message.isDeleted = :isDeleted', { isDeleted: false });
 
     if (searchDto.query) {
-      queryBuilder = queryBuilder.andWhere('message.content ILIKE :query', {
-        query: `%${searchDto.query}%`,
-      });
+      queryBuilder = queryBuilder.andWhere(
+        'UPPER(CAST(message.content AS NVARCHAR(MAX))) LIKE UPPER(:query)',
+        {
+          query: `%${searchDto.query}%`,
+        },
+      );
     }
 
     if (searchDto.channelId) {
@@ -452,7 +468,7 @@ export class MessageService {
 
   async findOne(id: string, userId: string): Promise<MessageResponseDto> {
     const message = await this.messageRepository.findOne({
-      where: { id, isDeleted: false },
+      where: { id: id, isDeleted: false },
       relations: [
         'author',
         'channel',
@@ -462,7 +478,6 @@ export class MessageService {
         'attachments',
         'reactions',
         'reactions.user',
-        'mentionedUsers',
       ],
     });
 
@@ -502,7 +517,7 @@ export class MessageService {
 
     const pinnedMessages = await this.messageRepository.find({
       where: {
-        channel: { id: channelId },
+        channelId,
         isPinned: true,
         isDeleted: false,
       },
@@ -512,7 +527,6 @@ export class MessageService {
         'attachments',
         'reactions',
         'reactions.user',
-        'mentionedUsers',
       ],
       order: { createdAt: 'DESC' },
     });

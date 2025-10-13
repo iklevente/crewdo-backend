@@ -5,12 +5,16 @@ import {
   BadRequestException,
   Inject,
 } from '@nestjs/common';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import {
   Workspace,
   User,
   Channel,
   Message,
+  Project,
+  Call,
+  MessageReadReceipt,
+  ScrumBoardEmbed,
   ChannelType,
   ChannelVisibility,
 } from '../entities/index';
@@ -25,6 +29,11 @@ export class WorkspaceService {
   private workspaceRepository: Repository<Workspace>;
   private userRepository: Repository<User>;
   private channelRepository: Repository<Channel>;
+  private projectRepository: Repository<Project>;
+  private messageRepository: Repository<Message>;
+  private callRepository: Repository<Call>;
+  private messageReadReceiptRepository: Repository<MessageReadReceipt>;
+  private scrumBoardEmbedRepository: Repository<ScrumBoardEmbed>;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -33,6 +42,13 @@ export class WorkspaceService {
     this.workspaceRepository = this.dataSource.getRepository(Workspace);
     this.userRepository = this.dataSource.getRepository(User);
     this.channelRepository = this.dataSource.getRepository(Channel);
+    this.projectRepository = this.dataSource.getRepository(Project);
+    this.messageRepository = this.dataSource.getRepository(Message);
+    this.callRepository = this.dataSource.getRepository(Call);
+    this.messageReadReceiptRepository =
+      this.dataSource.getRepository(MessageReadReceipt);
+    this.scrumBoardEmbedRepository =
+      this.dataSource.getRepository(ScrumBoardEmbed);
   }
 
   async create(
@@ -162,6 +178,35 @@ export class WorkspaceService {
       throw new ForbiddenException('Only workspace owner can delete workspace');
     }
 
+    // Manual cascading delete - delete dependent entities first
+    // We need to be careful about the order due to foreign key constraints
+
+    // 1. Get all channels in this workspace to clean up their dependent entities
+    const channels = await this.channelRepository.find({
+      where: { workspaceId: id },
+      select: ['id'],
+    });
+    const channelIds = channels.map((channel) => channel.id);
+
+    if (channelIds.length > 0) {
+      // 2. Delete all channel-dependent entities
+      await this.messageReadReceiptRepository.delete({
+        channelId: In(channelIds),
+      });
+      await this.scrumBoardEmbedRepository.delete({
+        channelId: In(channelIds),
+      });
+      await this.callRepository.delete({ channelId: In(channelIds) });
+      await this.messageRepository.delete({ channelId: In(channelIds) });
+    }
+
+    // 3. Delete all projects in this workspace (which will cascade to tasks)
+    await this.projectRepository.delete({ workspaceId: id });
+
+    // 4. Delete all channels in this workspace
+    await this.channelRepository.delete({ workspaceId: id });
+
+    // 5. Finally delete the workspace
     await this.workspaceRepository.remove(workspace);
   }
 

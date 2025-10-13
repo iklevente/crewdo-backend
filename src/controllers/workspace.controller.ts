@@ -10,6 +10,7 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,10 +34,13 @@ interface AuthenticatedRequest {
   };
 }
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../entities';
 
 @ApiTags('workspaces')
 @Controller('workspaces')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class WorkspaceController {
   constructor(private readonly workspaceService: WorkspaceService) {}
@@ -77,7 +81,7 @@ export class WorkspaceController {
     type: WorkspaceResponseDto,
   })
   async findOne(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<WorkspaceResponseDto> {
     return this.workspaceService.findOne(id, req.user.id);
@@ -92,7 +96,7 @@ export class WorkspaceController {
     type: WorkspaceResponseDto,
   })
   async update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateWorkspaceDto: UpdateWorkspaceDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<WorkspaceResponseDto> {
@@ -104,8 +108,9 @@ export class WorkspaceController {
   @ApiParam({ name: 'id', description: 'Workspace ID' })
   @ApiResponse({ status: 204, description: 'Workspace deleted successfully' })
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(UserRole.ADMIN)
   async remove(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
     return this.workspaceService.remove(id, req.user.id);
@@ -117,7 +122,7 @@ export class WorkspaceController {
   @ApiParam({ name: 'email', description: 'User email to add' })
   @ApiResponse({ status: 201, description: 'Member added successfully' })
   async addMember(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Param('email') email: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
@@ -131,8 +136,8 @@ export class WorkspaceController {
   @ApiResponse({ status: 204, description: 'Member removed successfully' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeMember(
-    @Param('id') id: string,
-    @Param('userId') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
     return this.workspaceService.removeMember(id, userId, req.user.id);
@@ -143,7 +148,7 @@ export class WorkspaceController {
   @ApiParam({ name: 'id', description: 'Workspace ID' })
   @ApiResponse({ status: 200, description: 'List of workspace members' })
   async getMembers(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ) {
     return this.workspaceService.getMembers(id, req.user.id);

@@ -52,7 +52,6 @@ async function bootstrap() {
     .addTag('Media', 'VoIP, screen sharing, and media operations')
     .addTag('Files', 'File upload and management')
     .addServer('/api', 'Production API') // Ensures Swagger UI uses /api as base path
-    .addServer('http://localhost:3000/api', 'Development API')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

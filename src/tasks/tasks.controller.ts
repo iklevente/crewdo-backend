@@ -62,7 +62,8 @@ export class TasksController {
   @Get()
   async findAll(
     @CurrentUser() user: User,
-    @Query('projectId') projectId?: string,
+    @Query('projectId', new ParseUUIDPipe({ optional: true }))
+    projectId?: string,
   ) {
     return await this.tasksService.findAll(user.id, user.role, projectId);
   }

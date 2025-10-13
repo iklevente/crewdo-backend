@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseUUIDPipe,
   UseGuards,
   Request,
 } from '@nestjs/common';
@@ -70,10 +71,10 @@ export class CallController {
 
   @Post(':id/join')
   @ApiOperation({ summary: 'Join a call' })
-  @ApiParam({ name: 'id', description: 'Call ID' })
-  @ApiResponse({ status: 200, description: 'Joined call successfully' })
+  @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
+  @ApiResponse({ status: 200, description: 'Successfully joined call' })
   async joinCall(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() joinCallDto: JoinCallDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
@@ -82,10 +83,10 @@ export class CallController {
 
   @Post(':id/leave')
   @ApiOperation({ summary: 'Leave a call' })
-  @ApiParam({ name: 'id', description: 'Call ID' })
+  @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Left call successfully' })
   async leaveCall(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
     return this.callService.leaveCall(id, req.user.id);
@@ -93,21 +94,21 @@ export class CallController {
 
   @Post(':id/end')
   @ApiOperation({ summary: 'End a call (initiator only)' })
-  @ApiParam({ name: 'id', description: 'Call ID' })
+  @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Call ended successfully' })
   async endCall(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
     return this.callService.endCall(id, req.user.id);
   }
 
   @Patch(':id/participant')
-  @ApiOperation({ summary: 'Update call participant settings' })
-  @ApiParam({ name: 'id', description: 'Call ID' })
+  @ApiOperation({ summary: 'Update participant settings (mute/unmute)' })
+  @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
   @ApiResponse({ status: 200, description: 'Participant updated successfully' })
   async updateParticipant(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateCallParticipantDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
@@ -115,15 +116,11 @@ export class CallController {
   }
 
   @Get('channel/:channelId')
-  @ApiOperation({ summary: 'Get calls by channel' })
-  @ApiParam({ name: 'channelId', description: 'Channel ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'List of calls in channel',
-    type: [CallResponseDto],
-  })
-  async findByChannel(
-    @Param('channelId') channelId: string,
+  @ApiOperation({ summary: 'Get calls for a channel' })
+  @ApiParam({ name: 'channelId', description: 'Channel ID (UUID)' })
+  @ApiResponse({ status: 200, description: 'Calls retrieved successfully' })
+  async getCallsForChannel(
+    @Param('channelId', ParseUUIDPipe) channelId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<CallResponseDto[]> {
     return this.callService.findByChannel(channelId, req.user.id);
@@ -131,14 +128,14 @@ export class CallController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get call by ID' })
-  @ApiParam({ name: 'id', description: 'Call ID' })
+  @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
   @ApiResponse({
     status: 200,
     description: 'Call details',
     type: CallResponseDto,
   })
   async findOne(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<CallResponseDto> {
     return this.callService.findOne(id, req.user.id);

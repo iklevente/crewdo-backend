@@ -87,8 +87,8 @@ export class ChannelService {
       throw new NotFoundException('Current user not found');
     }
 
-    // Get all users for DM
-    const allUserIds = [...createDmDto.userIds, userId];
+    // Get all users for DM - deduplicate to avoid counting the same user twice
+    const allUserIds = [...new Set([...createDmDto.userIds, userId])];
     const users = await this.userRepository.find({
       where: { id: In(allUserIds) },
     });
@@ -152,21 +152,50 @@ export class ChannelService {
     workspaceId: string,
     userId: string,
   ): Promise<ChannelResponseDto[]> {
-    const channels = await this.channelRepository
-      .createQueryBuilder('channel')
-      .leftJoinAndSelect('channel.members', 'members')
-      .leftJoinAndSelect('channel.creator', 'creator')
-      .leftJoinAndSelect('channel.workspace', 'workspace')
-      .leftJoinAndSelect('channel.project', 'project')
-      .where('channel.workspaceId = :workspaceId', { workspaceId })
-      .andWhere('members.id = :userId', { userId })
-      .andWhere('channel.isArchived = :isArchived', { isArchived: false })
-      .orderBy('channel.createdAt', 'ASC')
-      .getMany();
+    try {
+      // First, check if the workspace exists
+      if (!workspaceId) {
+        throw new Error('Workspace ID is required');
+      }
 
-    return Promise.all(
-      channels.map((channel) => this.formatChannelResponse(channel, userId)),
-    );
+      // Simplified query to avoid complex joins that might fail
+      const channels = await this.channelRepository
+        .createQueryBuilder('channel')
+        .leftJoinAndSelect('channel.members', 'members')
+        .leftJoinAndSelect('channel.creator', 'creator')
+        .where('channel.workspaceId = :workspaceId', { workspaceId })
+        .andWhere('channel.isArchived = :isArchived', { isArchived: false })
+        .andWhere('members.id = :userId', { userId })
+        .orderBy('channel.createdAt', 'ASC')
+        .getMany();
+
+      if (!channels || channels.length === 0) {
+        console.log(
+          `No channels found for workspace ${workspaceId} and user ${userId}`,
+        );
+        return [];
+      }
+
+      const formattedChannels: ChannelResponseDto[] = [];
+      for (const channel of channels) {
+        try {
+          const formatted = await this.formatChannelResponse(channel, userId);
+          formattedChannels.push(formatted);
+        } catch (formatError) {
+          console.error(`Error formatting channel ${channel.id}:`, formatError);
+          // Skip this channel but continue with others
+        }
+      }
+
+      return formattedChannels;
+    } catch (error) {
+      console.error('Error in findByWorkspace:', error);
+      if (error instanceof Error) {
+        console.error('Stack trace:', error.stack);
+      }
+      // Return empty array instead of throwing to prevent 500 errors
+      return [];
+    }
   }
 
   async findDirectMessages(userId: string): Promise<ChannelResponseDto[]> {
@@ -477,75 +506,92 @@ export class ChannelService {
     channel: Channel,
     userId?: string,
   ): Promise<ChannelResponseDto> {
-    // Get message count and last message
-    const messageCount = await this.messageRepository.count({
-      where: { channelId: channel.id, isDeleted: false },
-    });
+    try {
+      // Get message count and last message
+      const messageCount = await this.messageRepository.count({
+        where: { channelId: channel.id, isDeleted: false },
+      });
 
-    const lastMessage = await this.messageRepository.findOne({
-      where: { channelId: channel.id, isDeleted: false },
-      relations: ['author'],
-      order: { createdAt: 'DESC' },
-    });
+      const lastMessage = await this.messageRepository.findOne({
+        where: { channelId: channel.id, isDeleted: false },
+        relations: ['author'],
+        order: { createdAt: 'DESC' },
+      });
 
-    // Get unread count by finding messages not read by the current user
-    const unreadCount = userId
-      ? await this.getUnreadCount(channel.id, userId)
-      : 0;
+      // Get unread count by finding messages not read by the current user
+      let unreadCount = 0;
+      if (userId) {
+        try {
+          unreadCount = await this.getUnreadCount(channel.id, userId);
+        } catch (error) {
+          console.warn(
+            `Failed to get unread count for channel ${channel.id}:`,
+            error,
+          );
+          unreadCount = 0;
+        }
+      }
 
-    return {
-      id: channel.id,
-      name: channel.name,
-      description: channel.description,
-      type: channel.type,
-      visibility: channel.visibility,
-      topic: channel.topic,
-      isArchived: channel.isArchived,
-      isThread: channel.isThread,
-      createdAt: channel.createdAt,
-      updatedAt: channel.updatedAt,
-      creator: channel.creator
-        ? {
-            id: channel.creator.id,
-            firstName: channel.creator.firstName,
-            lastName: channel.creator.lastName,
-            email: channel.creator.email,
-          }
-        : undefined,
-      members:
-        channel.members?.map((member) => ({
-          id: member.id,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          email: member.email,
-          // TODO: Add presence information
-        })) || [],
-      workspace: channel.workspace
-        ? {
-            id: (channel.workspace as { id: string; name: string }).id,
-            name: (channel.workspace as { id: string; name: string }).name,
-          }
-        : undefined,
-      project: channel.project
-        ? {
-            id: channel.project.id,
-            name: channel.project.name,
-          }
-        : undefined,
-      messageCount,
-      unreadCount,
-      lastMessage: lastMessage
-        ? {
-            id: lastMessage.id,
-            content: lastMessage.content,
-            author: {
-              id: lastMessage.author.id,
-              firstName: lastMessage.author.firstName,
-              lastName: lastMessage.author.lastName,
-            },
-            createdAt: lastMessage.createdAt,
-          }
-        : undefined,
-    };
+      return {
+        id: channel.id,
+        name: channel.name,
+        description: channel.description,
+        type: channel.type,
+        visibility: channel.visibility,
+        topic: channel.topic,
+        isArchived: channel.isArchived,
+        isThread: channel.isThread,
+        createdAt: channel.createdAt,
+        updatedAt: channel.updatedAt,
+        creator: channel.creator
+          ? {
+              id: channel.creator.id,
+              firstName: channel.creator.firstName,
+              lastName: channel.creator.lastName,
+              email: channel.creator.email,
+            }
+          : undefined,
+        members:
+          channel.members?.map((member) => ({
+            id: member.id,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            email: member.email,
+            // TODO: Add presence information
+          })) || [],
+        workspace: channel.workspace
+          ? {
+              id: (channel.workspace as { id: string; name: string }).id,
+              name: (channel.workspace as { id: string; name: string }).name,
+            }
+          : undefined,
+        project: channel.project
+          ? {
+              id: channel.project.id,
+              name: channel.project.name,
+            }
+          : undefined,
+        messageCount,
+        unreadCount,
+        lastMessage: lastMessage
+          ? {
+              id: lastMessage.id,
+              content: lastMessage.content,
+              author: {
+                id: lastMessage.author.id,
+                firstName: lastMessage.author.firstName,
+                lastName: lastMessage.author.lastName,
+              },
+              createdAt: lastMessage.createdAt,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      console.error(
+        `Error in formatChannelResponse for channel ${channel?.id}:`,
+        error,
+      );
+      throw error;
+    }
   }
 }

@@ -11,6 +11,8 @@ import {
   HttpCode,
   HttpStatus,
   Query,
+  ParseUUIDPipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -88,12 +90,30 @@ export class MessageController {
     description: 'List of messages with pagination info',
   })
   async findByChannel(
-    @Param('channelId') channelId: string,
+    @Param('channelId', ParseUUIDPipe) channelId: string,
     @Query('cursor') cursor?: string,
-    @Query('limit') limit?: number,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
     @Query('order') order?: 'asc' | 'desc',
     @Request() req?: AuthenticatedRequest,
   ) {
+    // Validate cursor if provided and not empty
+    if (
+      cursor &&
+      cursor !== '' &&
+      cursor !== 'undefined' &&
+      cursor !== 'null' &&
+      cursor !== 'string'
+    ) {
+      try {
+        // Validate that cursor is a valid UUID
+        void new ParseUUIDPipe().transform(cursor, { type: 'query' });
+      } catch {
+        cursor = undefined; // Reset invalid cursor to undefined
+      }
+    } else {
+      cursor = undefined;
+    }
+
     const historyDto: MessageHistoryDto = {
       cursor,
       limit,
@@ -115,7 +135,7 @@ export class MessageController {
     type: [MessageResponseDto],
   })
   async findThreadReplies(
-    @Param('parentMessageId') parentMessageId: string,
+    @Param('parentMessageId', ParseUUIDPipe) parentMessageId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto[]> {
     return this.messageService.findThreadReplies(parentMessageId, req.user.id);
@@ -171,7 +191,7 @@ export class MessageController {
     type: [MessageResponseDto],
   })
   async getPinnedMessages(
-    @Param('channelId') channelId: string,
+    @Param('channelId', ParseUUIDPipe) channelId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto[]> {
     return this.messageService.getPinnedMessages(channelId, req.user.id);
@@ -186,7 +206,7 @@ export class MessageController {
     type: MessageResponseDto,
   })
   async findOne(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto> {
     return this.messageService.findOne(id, req.user.id);
@@ -201,7 +221,7 @@ export class MessageController {
     type: MessageResponseDto,
   })
   async update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateMessageDto: UpdateMessageDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto> {
@@ -214,7 +234,7 @@ export class MessageController {
   @ApiResponse({ status: 204, description: 'Message deleted successfully' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
     return this.messageService.remove(id, req.user.id);
@@ -239,7 +259,7 @@ export class MessageController {
     type: ReadReceiptResponseDto,
   })
   async markChannelAsRead(
-    @Param('channelId') channelId: string,
+    @Param('channelId', ParseUUIDPipe) channelId: string,
     @Body() markAsReadDto: MarkAsReadDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<ReadReceiptResponseDto> {
@@ -271,7 +291,7 @@ export class MessageController {
     description: 'Read status for messages',
   })
   async getMessageReadStatus(
-    @Param('channelId') channelId: string,
+    @Param('channelId', ParseUUIDPipe) channelId: string,
     @Query('messageIds') messageIds: string,
   ): Promise<Record<string, { readBy: string[]; readCount: number }>> {
     const messageIdArray = messageIds.split(',').filter(Boolean);

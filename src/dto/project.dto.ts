@@ -61,7 +61,7 @@ export class CreateProjectDto {
   @ApiPropertyOptional({ example: ['user-id-1', 'user-id-2'] })
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   memberIds?: string[];
 }
 
@@ -115,7 +115,7 @@ export class UpdateProjectDto {
 export class AddProjectMembersDto {
   @ApiProperty({ example: ['user-id-1', 'user-id-2'] })
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   memberIds: string[];
 }
 

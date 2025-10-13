@@ -5,7 +5,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { Repository, DataSource, In } from 'typeorm';
-import { Project, User, UserRole } from '../entities';
+import { Project, User, UserRole, Task } from '../entities';
 import {
   CreateProjectDto,
   UpdateProjectDto,
@@ -16,6 +16,7 @@ import {
 export class ProjectsService {
   private projectRepository: Repository<Project>;
   private userRepository: Repository<User>;
+  private taskRepository: Repository<Task>;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -23,6 +24,7 @@ export class ProjectsService {
   ) {
     this.projectRepository = this.dataSource.getRepository(Project);
     this.userRepository = this.dataSource.getRepository(User);
+    this.taskRepository = this.dataSource.getRepository(Task);
   }
 
   async create(
@@ -126,6 +128,10 @@ export class ProjectsService {
       throw new ForbiddenException('You can only delete your own projects');
     }
 
+    // First delete all tasks associated with this project
+    await this.taskRepository.delete({ projectId: id });
+
+    // Then delete the project itself
     await this.projectRepository.delete(id);
   }
 

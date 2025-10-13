@@ -44,7 +44,7 @@ export class StartCallDto {
   @ApiPropertyOptional({ example: ['user-id-1', 'user-id-2'] })
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   invitedUserIds?: string[];
 }
 
@@ -78,7 +78,7 @@ export class ScheduleCallDto {
   @ApiPropertyOptional({ example: ['user-id-1', 'user-id-2'] })
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   invitedUserIds?: string[];
 
   @ApiPropertyOptional({ example: true })

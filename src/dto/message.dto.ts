@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsObject,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateMessageDto {
@@ -25,13 +26,13 @@ export class CreateMessageDto {
   @ApiPropertyOptional({ example: ['file-uuid-1', 'file-uuid-2'] })
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   attachmentIds?: string[];
 
   @ApiPropertyOptional({ example: ['user-id-1', 'user-id-2'] })
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   mentionedUserIds?: string[];
 
   @ApiPropertyOptional({ example: false })
@@ -59,7 +60,7 @@ export class UpdateMessageDto {
   @ApiPropertyOptional({ example: ['user-id-1', 'user-id-3'] })
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID('all', { each: true })
   mentionedUserIds?: string[];
 
   @ApiPropertyOptional({ example: true })
@@ -199,11 +200,21 @@ export class MessageSearchDto {
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }): boolean | string => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value as string;
+  })
   @IsBoolean()
   hasAttachments?: boolean;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }): boolean | string => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value as string;
+  })
   @IsBoolean()
   isPinned?: boolean;
 

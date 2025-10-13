@@ -8,10 +8,41 @@ import {
   Logger,
   Param,
   Post,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { MediaService } from '../services/media.service';
 import { RecordingService } from '../services/recording.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../entities';
+
+interface AuthenticatedRequest {
+  user: {
+    id: string;
+    email: string;
+    role: string;
+  };
+}
+import {
+  CreateMediaRoomDto,
+  JoinRoomDto,
+  LeaveRoomDto,
+  ScreenShareDto,
+  StartRecordingDto,
+  StopRecordingDto,
+  QualityMetricsDto,
+  MediaRoomResponseDto,
+  RecordingInfoResponseDto,
+  QualityMetricsResponseDto,
+} from '../dto/media.dto';
 
 export interface WebRTCConfiguration {
   iceServers: Array<{
@@ -26,6 +57,7 @@ export interface MediaRoom {
   participants: string[];
   isActive: boolean;
   createdAt: Date;
+  createdBy: string;
 }
 
 export interface RecordingInfo {
@@ -47,7 +79,8 @@ export interface QualityMetrics {
 
 @ApiTags('media')
 @Controller('media')
-// @UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth()
 export class MediaController {
   private readonly logger = new Logger(MediaController.name);
 
@@ -75,14 +108,26 @@ export class MediaController {
 
   @Post('rooms')
   @ApiOperation({ summary: 'Create a new media room' })
-  @ApiResponse({ status: 201, description: 'Media room created' })
+  @ApiResponse({
+    status: 201,
+    description: 'Media room created',
+    type: MediaRoomResponseDto,
+  })
   createRoom(
-    @Body() createRoomDto: { name: string; maxParticipants?: number },
+    @Body() createRoomDto: CreateMediaRoomDto,
+    @Request() req: AuthenticatedRequest,
   ): Promise<MediaRoom> {
     try {
-      const roomId = this.mediaService.createMediaRoom(createRoomDto.name, {
-        maxParticipants: createRoomDto.maxParticipants,
-      });
+      this.logger.log(
+        `User ${req.user.id} creating media room: ${createRoomDto.name}`,
+      );
+      const roomId = this.mediaService.createMediaRoom(
+        createRoomDto.name,
+        req.user.id,
+        {
+          maxParticipants: createRoomDto.maxParticipants,
+        },
+      );
       const room = this.mediaService.getMediaRoom(roomId);
       if (!room) {
         throw new Error('Failed to retrieve created room');
@@ -92,6 +137,7 @@ export class MediaController {
         participants: room.participants,
         isActive: room.isActive,
         createdAt: room.createdAt,
+        createdBy: room.createdBy,
       };
       this.logger.log(`Created media room: ${roomId}`);
       return Promise.resolve(mediaRoom);
@@ -107,14 +153,16 @@ export class MediaController {
   @Get('rooms')
   @ApiOperation({ summary: 'Get all active media rooms' })
   @ApiResponse({ status: 200, description: 'Active media rooms returned' })
-  getRooms(): MediaRoom[] {
+  getRooms(@Request() req: AuthenticatedRequest): MediaRoom[] {
     try {
+      this.logger.log(`User ${req.user.id} requesting active rooms`);
       const serviceRooms = this.mediaService.getActiveRooms();
       const rooms: MediaRoom[] = serviceRooms.map((room) => ({
         id: room.id,
         participants: room.participants,
         isActive: room.isActive,
         createdAt: room.createdAt,
+        createdBy: room.createdBy,
       }));
       this.logger.log(`Retrieved ${rooms.length} active rooms`);
       return rooms;
@@ -141,6 +189,7 @@ export class MediaController {
         participants: serviceRoom.participants,
         isActive: serviceRoom.isActive,
         createdAt: serviceRoom.createdAt,
+        createdBy: serviceRoom.createdBy,
       };
       this.logger.log(`Retrieved room details for: ${roomId}`);
       return Promise.resolve(room);
@@ -161,7 +210,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: 'Successfully joined room' })
   joinRoom(
     @Param('roomId') roomId: string,
-    @Body() joinDto: { userId: string; mediaConstraints?: any },
+    @Body() joinDto: JoinRoomDto,
   ): Promise<{ success: boolean; sessionInfo?: any }> {
     try {
       const result = this.mediaService.joinRoom(
@@ -187,7 +236,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: 'Successfully left room' })
   leaveRoom(
     @Param('roomId') roomId: string,
-    @Body() leaveDto: { userId: string },
+    @Body() leaveDto: LeaveRoomDto,
   ): Promise<{ success: boolean }> {
     try {
       this.mediaService.leaveRoom(roomId, leaveDto.userId);
@@ -203,14 +252,36 @@ export class MediaController {
   }
 
   @Delete('rooms/:roomId')
-  @ApiOperation({ summary: 'Delete a media room' })
+  @ApiOperation({
+    summary: 'Delete a media room (creator, admin, or project manager only)',
+  })
   @ApiResponse({ status: 200, description: 'Media room deleted' })
-  deleteRoom(@Param('roomId') roomId: string): Promise<{ success: boolean }> {
+  deleteRoom(
+    @Param('roomId') roomId: string,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<{ success: boolean }> {
     try {
+      // Check if user has permission to delete this room
+      if (
+        !this.mediaService.canDeleteRoom(roomId, req.user.id, req.user.role)
+      ) {
+        this.logger.warn(
+          `User ${req.user.id} attempted to delete room ${roomId} without permission`,
+        );
+        throw new HttpException(
+          'You can only delete rooms you created, or you must be an admin/project manager',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      this.logger.log(`User ${req.user.id} deleting room: ${roomId}`);
       this.mediaService.deleteRoom(roomId);
       this.logger.log(`Deleted room: ${roomId}`);
       return Promise.resolve({ success: true });
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       this.logger.error(`Failed to delete room ${roomId}: ${error}`);
       throw new HttpException(
         'Failed to delete media room',
@@ -224,7 +295,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: 'Screen sharing started' })
   startScreenShare(
     @Param('roomId') roomId: string,
-    @Body() screenShareDto: { userId: string; constraints?: any },
+    @Body() screenShareDto: ScreenShareDto,
   ): Promise<{ success: boolean; streamId?: string }> {
     try {
       this.mediaService.startScreenShare(roomId, screenShareDto.userId);
@@ -246,7 +317,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: 'Screen sharing stopped' })
   stopScreenShare(
     @Param('roomId') roomId: string,
-    @Body() stopDto: { userId: string },
+    @Body() stopDto: ScreenShareDto,
   ): Promise<{ success: boolean }> {
     try {
       this.mediaService.stopScreenShare(roomId, stopDto.userId);
@@ -268,7 +339,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: 'Recording started' })
   startRecording(
     @Param('roomId') roomId: string,
-    @Body() recordingDto: { quality?: string; format?: string },
+    @Body() recordingDto: StartRecordingDto,
   ): Promise<{ success: boolean; recordingId: string }> {
     try {
       const recording = this.recordingService.startRecording(roomId, {
@@ -289,16 +360,31 @@ export class MediaController {
   @Post('rooms/:roomId/recording/stop')
   @ApiOperation({ summary: 'Stop recording a media room' })
   @ApiResponse({ status: 200, description: 'Recording stopped' })
-  stopRecording(
+  async stopRecording(
     @Param('roomId') roomId: string,
-    @Body() stopDto: { recordingId: string },
+    @Body() stopDto: StopRecordingDto,
   ): Promise<{ success: boolean; fileInfo?: any }> {
     try {
-      const fileInfo = this.recordingService.stopRecording(stopDto.recordingId);
+      const recording = await this.recordingService.stopRecording(
+        stopDto.recordingId,
+      );
       this.logger.log(
         `Stopped recording ${stopDto.recordingId} for room ${roomId}`,
       );
-      return Promise.resolve({ success: true, fileInfo });
+
+      // Extract useful file info from the recording
+      const fileInfo = {
+        id: recording.id,
+        fileName: recording.filename,
+        filePath: recording.filePath,
+        size: recording.size,
+        duration: recording.duration,
+        status: recording.status,
+        url: recording.url,
+        format: recording.metadata?.format,
+      };
+
+      return { success: true, fileInfo };
     } catch (error) {
       this.logger.error(`Failed to stop recording: ${error}`);
       throw new HttpException(
@@ -310,7 +396,11 @@ export class MediaController {
 
   @Get('recordings')
   @ApiOperation({ summary: 'Get all recordings' })
-  @ApiResponse({ status: 200, description: 'Recordings list returned' })
+  @ApiResponse({
+    status: 200,
+    description: 'Recordings list returned',
+    type: [RecordingInfoResponseDto],
+  })
   async getRecordings(): Promise<RecordingInfo[]> {
     try {
       const result = await this.recordingService.getRecordings();
@@ -370,10 +460,15 @@ export class MediaController {
   @Delete('recordings/:recordingId')
   @ApiOperation({ summary: 'Delete a recording' })
   @ApiResponse({ status: 200, description: 'Recording deleted' })
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   deleteRecording(
     @Param('recordingId') recordingId: string,
+    @Request() req: AuthenticatedRequest,
   ): Promise<{ success: boolean }> {
     try {
+      this.logger.log(
+        `Admin ${req.user.id} deleting recording: ${recordingId}`,
+      );
       void this.recordingService.deleteRecording(recordingId);
       this.logger.log(`Deleted recording ${recordingId}`);
       return Promise.resolve({ success: true });
@@ -388,7 +483,11 @@ export class MediaController {
 
   @Get('rooms/:roomId/quality')
   @ApiOperation({ summary: 'Get quality metrics for a room' })
-  @ApiResponse({ status: 200, description: 'Quality metrics returned' })
+  @ApiResponse({
+    status: 200,
+    description: 'Quality metrics returned',
+    type: [QualityMetricsResponseDto],
+  })
   getRoomQuality(@Param('roomId') roomId: string): Promise<QualityMetrics[]> {
     try {
       const serviceMetrics = this.mediaService.getCallQualityMetrics(roomId);
@@ -415,7 +514,7 @@ export class MediaController {
   @ApiResponse({ status: 200, description: 'Quality metrics recorded' })
   reportQuality(
     @Param('roomId') roomId: string,
-    @Body() qualityDto: { userId: string; metrics: QualityMetrics },
+    @Body() qualityDto: QualityMetricsDto,
   ): Promise<{ success: boolean }> {
     try {
       this.mediaService.recordQualityMetrics(roomId, qualityDto.userId, {

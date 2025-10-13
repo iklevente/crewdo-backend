@@ -26,6 +26,9 @@ import {
 } from '../dto/channel.dto';
 import { ChannelService } from '../services/channel.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../entities';
 
 interface AuthenticatedRequest {
   user: {
@@ -37,7 +40,7 @@ interface AuthenticatedRequest {
 
 @ApiTags('channels')
 @Controller('channels')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class ChannelController {
   constructor(private readonly channelService: ChannelService) {}
@@ -137,6 +140,7 @@ export class ChannelController {
   @ApiParam({ name: 'id', description: 'Channel ID' })
   @ApiResponse({ status: 204, description: 'Channel deleted successfully' })
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async remove(
     @Param('id') id: string,
     @Request() req: AuthenticatedRequest,
