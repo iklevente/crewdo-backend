@@ -29,7 +29,7 @@ export class CreateNotificationDto {
   @ApiProperty({
     description: 'Type of notification',
     enum: NotificationType,
-    example: NotificationType.TASK_ASSIGNED,
+    example: NotificationType.MESSAGE_RECEIVED,
   })
   @IsEnum(NotificationType)
   type: NotificationType;

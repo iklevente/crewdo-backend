@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { DatabaseModule } from '../config/database.module';
+import { NotificationModule } from './notification.module';
 
 // Services
 import { WorkspaceService } from '../services/workspace.service';
@@ -23,6 +24,7 @@ import { ChatGateway } from '../websocket/chat.gateway';
 @Module({
   imports: [
     DatabaseModule,
+    NotificationModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key',
       signOptions: { expiresIn: '24h' },

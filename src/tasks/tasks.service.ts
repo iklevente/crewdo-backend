@@ -5,8 +5,9 @@ import {
   Inject,
 } from '@nestjs/common';
 import { Repository, DataSource } from 'typeorm';
-import { Task, Project, User, UserRole } from '../entities';
+import { Task, Project, User, UserRole, TaskStatus } from '../entities';
 import { CreateTaskDto, UpdateTaskDto } from '../dto/task.dto';
+import { NotificationService } from '../services/notification.service';
 
 @Injectable()
 export class TasksService {
@@ -17,6 +18,7 @@ export class TasksService {
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
+    private notificationService: NotificationService,
   ) {
     this.taskRepository = this.dataSource.getRepository(Task);
     this.projectRepository = this.dataSource.getRepository(Project);
@@ -75,7 +77,23 @@ export class TasksService {
     };
 
     const task = this.taskRepository.create(taskData);
-    return await this.taskRepository.save(task);
+    const savedTask = await this.taskRepository.save(task);
+
+    // Send notification if task is assigned to someone
+    if (createTaskDto.assigneeId && createTaskDto.assigneeId !== creatorId) {
+      try {
+        await this.notificationService.createTaskAssignedNotification(
+          savedTask.id,
+          savedTask.title,
+          createTaskDto.assigneeId,
+          creatorId,
+        );
+      } catch (error) {
+        console.warn('Failed to send task assignment notification:', error);
+      }
+    }
+
+    return savedTask;
   }
 
   async findAll(
@@ -163,6 +181,9 @@ export class TasksService {
       }
     }
 
+    const oldStatus = task.status;
+    const oldAssigneeId = task.assignee?.id;
+
     const updateData = {
       ...updateTaskDto,
       tags: updateTaskDto.tags
@@ -170,7 +191,42 @@ export class TasksService {
         : updateTaskDto.tags,
     };
     await this.taskRepository.update(id, updateData);
-    return await this.findOne(id, userId, userRole);
+
+    const updatedTask = await this.findOne(id, userId, userRole);
+
+    // Send notifications for status and assignment changes
+    try {
+      // Notification for task completion
+      if (
+        oldStatus !== TaskStatus.DONE &&
+        updateTaskDto.status === TaskStatus.DONE
+      ) {
+        await this.notificationService.createTaskCompletedNotification(
+          updatedTask.id,
+          updatedTask.title,
+          updatedTask.project.ownerId,
+          userId,
+        );
+      }
+
+      // Notification for task assignment (new assignment or reassignment)
+      if (
+        updateTaskDto.assigneeId &&
+        updateTaskDto.assigneeId !== oldAssigneeId &&
+        updateTaskDto.assigneeId !== userId
+      ) {
+        await this.notificationService.createTaskAssignedNotification(
+          updatedTask.id,
+          updatedTask.title,
+          updateTaskDto.assigneeId,
+          userId,
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to send task update notifications:', error);
+    }
+
+    return updatedTask;
   }
 
   async remove(id: string, userId: string, userRole: UserRole): Promise<void> {

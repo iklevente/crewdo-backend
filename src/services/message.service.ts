@@ -24,6 +24,7 @@ import {
   MessageHistoryDto,
 } from '../dto/message.dto';
 import { AttachmentService } from './attachment.service';
+import { NotificationService } from './notification.service';
 
 @Injectable()
 export class MessageService {
@@ -37,6 +38,7 @@ export class MessageService {
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
     private readonly attachmentService: AttachmentService,
+    private readonly notificationService: NotificationService,
   ) {
     this.messageRepository = this.dataSource.getRepository(Message);
     this.userRepository = this.dataSource.getRepository(User);
@@ -153,6 +155,44 @@ export class MessageService {
     // Update channel's updated timestamp
     channel.updatedAt = new Date();
     await this.channelRepository.save(channel);
+
+    // Send message notifications
+    try {
+      const messagePreview =
+        createMessageDto.content.length > 50
+          ? createMessageDto.content.substring(0, 50) + '...'
+          : createMessageDto.content;
+
+      // Get all channel members except the author
+      const otherMembers = channel.members.filter(
+        (member) => member.id !== authorId,
+      );
+
+      for (const member of otherMembers) {
+        if (replyToMessage && replyToMessage.author.id === member.id) {
+          // This is a reply to this member's message
+          await this.notificationService.createMessageReplyNotification(
+            savedMessage.id,
+            channel.name,
+            `${author.firstName} ${author.lastName}`,
+            replyToMessage.id,
+            member.id,
+            messagePreview,
+          );
+        } else {
+          // Regular message notification
+          await this.notificationService.createMessageReceivedNotification(
+            savedMessage.id,
+            channel.name,
+            authorId,
+            member.id,
+            messagePreview,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to send message notifications:', error);
+    }
 
     // Reload message with attachments
     const messageWithAttachments = await this.messageRepository.findOne({

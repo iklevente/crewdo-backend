@@ -11,11 +11,12 @@ import { User } from './user.entity';
 export enum NotificationType {
   TASK_ASSIGNED = 'task_assigned',
   TASK_COMPLETED = 'task_completed',
-  TASK_OVERDUE = 'task_overdue',
-  PROJECT_INVITATION = 'project_invitation',
   COMMENT_ADDED = 'comment_added',
-  DEADLINE_APPROACHING = 'deadline_approaching',
   PROJECT_STATUS_CHANGED = 'project_status_changed',
+  MESSAGE_RECEIVED = 'message_received',
+  MESSAGE_REPLY = 'message_reply',
+  CALL_SCHEDULED = 'call_scheduled',
+  INCOMING_CALL = 'incoming_call',
 }
 
 @Entity('notifications')

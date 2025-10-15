@@ -24,6 +24,7 @@ import {
   CallType as DtoCallType,
   CallStatus as DtoCallStatus,
 } from '../dto/call.dto';
+import { NotificationService } from './notification.service';
 
 @Injectable()
 export class CallService {
@@ -35,6 +36,7 @@ export class CallService {
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
+    private readonly notificationService: NotificationService,
   ) {
     this.callRepository = this.dataSource.getRepository(Call);
     this.callParticipantRepository =
@@ -138,6 +140,23 @@ export class CallService {
       }
     }
 
+    // Send incoming call notifications to all channel members except initiator
+    try {
+      const otherMembers = channel.members.filter(
+        (member) => member.id !== initiatorId,
+      );
+      for (const member of otherMembers) {
+        await this.notificationService.createIncomingCallNotification(
+          savedCall.id,
+          savedCall.title,
+          initiatorId,
+          member.id,
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to send incoming call notifications:', error);
+    }
+
     return this.formatCallResponse(savedCall);
   }
 
@@ -200,6 +219,28 @@ export class CallService {
           await this.callParticipantRepository.save(invitedParticipant);
         }
       }
+    }
+
+    // Send scheduled call notifications
+    try {
+      const scheduledTime = new Date(scheduleCallDto.scheduledStartTime);
+      const notificationTargets =
+        scheduleCallDto.invitedUserIds ||
+        channel.members
+          .filter((member) => member.id !== initiatorId)
+          .map((member) => member.id);
+
+      for (const targetUserId of notificationTargets) {
+        await this.notificationService.createCallScheduledNotification(
+          savedCall.id,
+          savedCall.title,
+          initiatorId,
+          targetUserId,
+          scheduledTime,
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to send scheduled call notifications:', error);
     }
 
     return this.formatCallResponse(savedCall);

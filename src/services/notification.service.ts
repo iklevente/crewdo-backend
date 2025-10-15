@@ -278,23 +278,112 @@ export class NotificationService {
     });
   }
 
-  async createProjectInvitationNotification(
+  async createProjectStatusChangedNotification(
     projectId: string,
     projectName: string,
-    inviterId: string,
-    inviteeId: string,
+    newStatus: string,
+    changerId: string,
+    recipientId: string,
   ): Promise<NotificationResponseDto> {
-    const inviter = await this.userRepository.findOne({
-      where: { id: inviterId },
+    const changer = await this.userRepository.findOne({
+      where: { id: changerId },
     });
 
     return this.create({
-      title: 'Project Invitation',
-      message: `${inviter?.firstName} ${inviter?.lastName} invited you to join project: ${projectName}`,
-      type: NotificationType.PROJECT_INVITATION,
-      userId: inviteeId,
+      title: 'Project Status Changed',
+      message: `${changer?.firstName} ${changer?.lastName} changed status of "${projectName}" to ${newStatus}`,
+      type: NotificationType.PROJECT_STATUS_CHANGED,
+      userId: recipientId,
       relatedEntityId: projectId,
       relatedEntityType: 'project',
+    });
+  }
+
+  async createMessageReceivedNotification(
+    messageId: string,
+    channelName: string,
+    senderId: string,
+    recipientId: string,
+    messagePreview: string,
+  ): Promise<NotificationResponseDto> {
+    const sender = await this.userRepository.findOne({
+      where: { id: senderId },
+    });
+
+    return this.create({
+      title: 'New Message',
+      message: `${sender?.firstName} ${sender?.lastName} sent a message in #${channelName}: ${messagePreview}`,
+      type: NotificationType.MESSAGE_RECEIVED,
+      userId: recipientId,
+      relatedEntityId: messageId,
+      relatedEntityType: 'message',
+    });
+  }
+
+  async createMessageReplyNotification(
+    messageId: string,
+    channelName: string,
+    replierName: string,
+    originalMessageId: string,
+    recipientId: string,
+    replyPreview: string,
+  ): Promise<NotificationResponseDto> {
+    return this.create({
+      title: 'Message Reply',
+      message: `${replierName} replied to your message in #${channelName}: ${replyPreview}`,
+      type: NotificationType.MESSAGE_REPLY,
+      userId: recipientId,
+      relatedEntityId: messageId,
+      relatedEntityType: 'message',
+    });
+  }
+
+  async createCallScheduledNotification(
+    callId: string,
+    callTitle: string,
+    schedulerId: string,
+    recipientId: string,
+    scheduledTime: Date,
+  ): Promise<NotificationResponseDto> {
+    const scheduler = await this.userRepository.findOne({
+      where: { id: schedulerId },
+    });
+
+    const timeStr = scheduledTime.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+
+    return this.create({
+      title: 'Call Scheduled',
+      message: `${scheduler?.firstName} ${scheduler?.lastName} scheduled a call "${callTitle}" for ${timeStr}`,
+      type: NotificationType.CALL_SCHEDULED,
+      userId: recipientId,
+      relatedEntityId: callId,
+      relatedEntityType: 'call',
+    });
+  }
+
+  async createIncomingCallNotification(
+    callId: string,
+    callTitle: string,
+    callerId: string,
+    recipientId: string,
+  ): Promise<NotificationResponseDto> {
+    const caller = await this.userRepository.findOne({
+      where: { id: callerId },
+    });
+
+    return this.create({
+      title: 'Incoming Call',
+      message: `${caller?.firstName} ${caller?.lastName} is calling you: ${callTitle}`,
+      type: NotificationType.INCOMING_CALL,
+      userId: recipientId,
+      relatedEntityId: callId,
+      relatedEntityType: 'call',
     });
   }
 

@@ -7,6 +7,7 @@ import {
 import { Repository, DataSource } from 'typeorm';
 import { Comment, Task, UserRole } from '../entities';
 import { CreateCommentDto, UpdateCommentDto } from '../dto/comment.dto';
+import { NotificationService } from '../services/notification.service';
 
 @Injectable()
 export class CommentsService {
@@ -16,6 +17,7 @@ export class CommentsService {
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
+    private notificationService: NotificationService,
   ) {
     this.commentRepository = this.dataSource.getRepository(Comment);
     this.taskRepository = this.dataSource.getRepository(Task);
@@ -51,7 +53,42 @@ export class CommentsService {
       authorId,
     });
 
-    return await this.commentRepository.save(comment);
+    const savedComment = await this.commentRepository.save(comment);
+
+    // Send notification to task assignee and project owner
+    try {
+      const notificationTargets = new Set<string>();
+
+      // Add task assignee
+      if (task.assigneeId && task.assigneeId !== authorId) {
+        notificationTargets.add(task.assigneeId);
+      }
+
+      // Add project owner
+      if (task.project.ownerId !== authorId) {
+        notificationTargets.add(task.project.ownerId);
+      }
+
+      // Add task creator
+      if (task.creatorId && task.creatorId !== authorId) {
+        notificationTargets.add(task.creatorId);
+      }
+
+      // Send notifications to all targets
+      for (const targetUserId of notificationTargets) {
+        await this.notificationService.createCommentNotification(
+          task.id,
+          'task',
+          task.title,
+          authorId,
+          targetUserId,
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to send comment notification:', error);
+    }
+
+    return savedComment;
   }
 
   async findByTaskId(
