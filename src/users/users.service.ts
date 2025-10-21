@@ -51,6 +51,7 @@ export class UsersService {
         'department',
         'position',
         'createdAt',
+        'lastLoginAt',
       ],
     });
   }
@@ -72,6 +73,7 @@ export class UsersService {
         'isEmailVerified',
         'createdAt',
         'updatedAt',
+        'lastLoginAt',
       ],
     });
   }

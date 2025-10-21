@@ -14,6 +14,7 @@ import {
   MessageReadReceipt,
   Call,
   CallParticipant,
+  UserPresence,
 } from '../entities';
 
 export const databaseProviders = [
@@ -41,8 +42,9 @@ export const databaseProviders = [
           MessageReadReceipt,
           Call,
           CallParticipant,
+          UserPresence,
         ],
-        synchronize: process.env.NODE_ENV !== 'production', // Only in development
+        synchronize: true,
         logging: process.env.NODE_ENV === 'development',
         options: {
           encrypt: false, // Set to true if using Azure SQL

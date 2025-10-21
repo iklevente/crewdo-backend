@@ -130,22 +130,6 @@ export class CallController {
     return this.callService.updateParticipant(id, req.user.id, updateDto);
   }
 
-  @Get('channel/:channelId')
-  @ApiOperation({ summary: 'Get calls for a channel' })
-  @ApiParam({ name: 'channelId', description: 'Channel ID (UUID)' })
-  @ApiResponse({ status: 200, description: 'Calls retrieved successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - No access to this channel',
-  })
-  async getCallsForChannel(
-    @Param('channelId', ParseUUIDPipe) channelId: string,
-    @Request() req: AuthenticatedRequest,
-  ): Promise<CallResponseDto[]> {
-    // Service validates user has access to the channel
-    return this.callService.findByChannel(channelId, req.user.id);
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Get call by ID' })
   @ApiParam({ name: 'id', description: 'Call ID (UUID)' })

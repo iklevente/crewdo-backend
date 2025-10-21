@@ -5,10 +5,16 @@ export { Comment } from './comment.entity';
 export { Notification, NotificationType } from './notification.entity';
 export { Attachment, AttachmentType } from './attachment.entity';
 
+export {
+  UserPresence,
+  PresenceStatus,
+  PresenceSource,
+} from './presence.entity';
+
 // Chat and Communication entities
 export { Workspace, WorkspaceType } from './workspace.entity';
 export { Channel, ChannelType, ChannelVisibility } from './channel.entity';
-export { Message, MessageType } from './message.entity';
+export { Message } from './message.entity';
 export { MessageReaction } from './message-reaction.entity';
 export { MessageReadReceipt } from './message-read-receipt.entity';
 export { Call, CallType, CallStatus } from './call.entity';

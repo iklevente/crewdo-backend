@@ -11,7 +11,6 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
-import { Channel } from './channel.entity';
 import { CallParticipant } from './call-participant.entity';
 
 export enum CallType {
@@ -73,13 +72,6 @@ export class Call {
 
   @Column('uuid')
   initiatorId: string;
-
-  @ManyToOne(() => Channel, { nullable: true })
-  @JoinColumn({ name: 'channelId' })
-  channel: Channel;
-
-  @Column('uuid', { nullable: true })
-  channelId: string;
 
   @OneToMany(() => CallParticipant, (participant) => participant.call)
   participants: CallParticipant[];

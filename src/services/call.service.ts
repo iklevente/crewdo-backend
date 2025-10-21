@@ -5,12 +5,11 @@ import {
   BadRequestException,
   Inject,
 } from '@nestjs/common';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import {
   Call,
   CallParticipant,
   User,
-  Channel,
   CallStatus,
   CallType,
   ParticipantStatus,
@@ -31,7 +30,6 @@ export class CallService {
   private callRepository: Repository<Call>;
   private callParticipantRepository: Repository<CallParticipant>;
   private userRepository: Repository<User>;
-  private channelRepository: Repository<Channel>;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -42,7 +40,6 @@ export class CallService {
     this.callParticipantRepository =
       this.dataSource.getRepository(CallParticipant);
     this.userRepository = this.dataSource.getRepository(User);
-    this.channelRepository = this.dataSource.getRepository(Channel);
   }
 
   private mapEntityStatusToDto(entityStatus: CallStatus): DtoCallStatus {
@@ -71,93 +68,62 @@ export class CallService {
       throw new NotFoundException('Initiator not found');
     }
 
-    const channel = await this.channelRepository.findOne({
-      where: { id: startCallDto.channelId },
-      relations: ['members'],
-    });
-
-    if (!channel) {
-      throw new NotFoundException('Channel not found');
-    }
-
-    // Check if user is member of channel
-    const isMember = channel.members.some(
-      (member) => member.id === initiatorId,
+    const invitedUserIds = Array.from(
+      new Set(
+        (startCallDto.invitedUserIds || []).filter(
+          (userId) => userId !== initiatorId,
+        ),
+      ),
     );
-    if (!isMember) {
-      throw new ForbiddenException('Access denied to this channel');
-    }
 
-    // Check if there's already an active call in this channel
-    const existingCall = await this.callRepository.findOne({
-      where: {
-        channel: { id: startCallDto.channelId },
-        status: CallStatus.ACTIVE,
-      },
-    });
-
-    if (existingCall) {
-      throw new BadRequestException(
-        'There is already an active call in this channel',
-      );
-    }
+    const invitedUsers = invitedUserIds.length
+      ? await this.userRepository.find({ where: { id: In(invitedUserIds) } })
+      : [];
 
     const call = this.callRepository.create({
       title: startCallDto.title,
       type: startCallDto.type as CallType,
       status: CallStatus.ACTIVE,
       initiator,
-      channel,
+      invitedUsers,
     });
 
     const savedCall = await this.callRepository.save(call);
 
-    // Add initiator as participant
-    const participant = this.callParticipantRepository.create({
-      call: savedCall,
-      user: initiator,
-      status: ParticipantStatus.JOINED,
-      isMuted: false,
-      isVideoOff: startCallDto.type !== DtoCallType.VIDEO,
-    });
+    await this.callParticipantRepository.save(
+      this.callParticipantRepository.create({
+        call: savedCall,
+        user: initiator,
+        status: ParticipantStatus.JOINED,
+        isMuted: false,
+        isVideoOff: startCallDto.type !== DtoCallType.VIDEO,
+      }),
+    );
 
-    await this.callParticipantRepository.save(participant);
-
-    // Invite specified users if provided
-    if (startCallDto.invitedUserIds) {
-      for (const userId of startCallDto.invitedUserIds) {
-        const user = await this.userRepository.findOne({
-          where: { id: userId },
-        });
-        if (user) {
-          const invitedParticipant = this.callParticipantRepository.create({
-            call: savedCall,
-            user,
-            status: ParticipantStatus.INVITED,
-          });
-          await this.callParticipantRepository.save(invitedParticipant);
-        }
-      }
+    for (const user of invitedUsers) {
+      const invitedParticipant = this.callParticipantRepository.create({
+        call: savedCall,
+        user,
+        status: ParticipantStatus.INVITED,
+      });
+      await this.callParticipantRepository.save(invitedParticipant);
     }
 
-    // Send incoming call notifications to all channel members except initiator
     try {
-      const otherMembers = channel.members.filter(
-        (member) => member.id !== initiatorId,
-      );
-      for (const member of otherMembers) {
+      for (const user of invitedUsers) {
         await this.notificationService.createIncomingCallNotification(
           savedCall.id,
           savedCall.title,
           initiatorId,
-          member.id,
+          user.id,
         );
       }
     } catch (error) {
       console.warn('Failed to send incoming call notifications:', error);
     }
 
-    return this.formatCallResponse(savedCall);
+    const hydratedCall = await this.getCallWithRelations(savedCall.id);
+    return this.formatCallResponse(hydratedCall);
   }
 
   async scheduleCall(
@@ -171,71 +137,53 @@ export class CallService {
       throw new NotFoundException('Initiator not found');
     }
 
-    const channel = await this.channelRepository.findOne({
-      where: { id: scheduleCallDto.channelId },
-      relations: ['members'],
-    });
-
-    if (!channel) {
-      throw new NotFoundException('Channel not found');
-    }
-
-    // Check if user is member of channel
-    const isMember = channel.members.some(
-      (member) => member.id === initiatorId,
+    const invitedUserIds = Array.from(
+      new Set(
+        (scheduleCallDto.invitedUserIds || []).filter(
+          (userId) => userId !== initiatorId,
+        ),
+      ),
     );
-    if (!isMember) {
-      throw new ForbiddenException('Access denied to this channel');
-    }
+
+    const invitedUsers = invitedUserIds.length
+      ? await this.userRepository.find({ where: { id: In(invitedUserIds) } })
+      : [];
+
+    const scheduleMetadata = {
+      scheduled: true,
+      scheduledStartTime: scheduleCallDto.scheduledStartTime,
+      scheduledEndTime: scheduleCallDto.scheduledEndTime,
+      description: scheduleCallDto.description,
+    };
 
     const call = this.callRepository.create({
       title: scheduleCallDto.title,
       type: scheduleCallDto.type as CallType,
-      status: CallStatus.STARTING, // Use starting for scheduled calls
+      status: CallStatus.STARTING,
       initiator,
-      channel,
-      settings: JSON.stringify({
-        scheduled: true,
-        scheduledStartTime: scheduleCallDto.scheduledStartTime,
-        scheduledEndTime: scheduleCallDto.scheduledEndTime,
-        description: scheduleCallDto.description,
-      }),
+      invitedUsers,
+      settings: JSON.stringify(scheduleMetadata),
     });
 
     const savedCall = await this.callRepository.save(call);
 
-    // Invite specified users if provided
-    if (scheduleCallDto.invitedUserIds) {
-      for (const userId of scheduleCallDto.invitedUserIds) {
-        const user = await this.userRepository.findOne({
-          where: { id: userId },
-        });
-        if (user) {
-          const invitedParticipant = this.callParticipantRepository.create({
-            call: savedCall,
-            user,
-            status: ParticipantStatus.INVITED,
-          });
-          await this.callParticipantRepository.save(invitedParticipant);
-        }
-      }
+    for (const user of invitedUsers) {
+      const invitedParticipant = this.callParticipantRepository.create({
+        call: savedCall,
+        user,
+        status: ParticipantStatus.INVITED,
+      });
+      await this.callParticipantRepository.save(invitedParticipant);
     }
 
-    // Send scheduled call notifications
     try {
       const scheduledTime = new Date(scheduleCallDto.scheduledStartTime);
-      const notificationTargets =
-        scheduleCallDto.invitedUserIds ||
-        channel.members
-          .filter((member) => member.id !== initiatorId)
-          .map((member) => member.id);
-
-      for (const targetUserId of notificationTargets) {
+      for (const user of invitedUsers) {
         await this.notificationService.createCallScheduledNotification(
           savedCall.id,
           savedCall.title,
           initiatorId,
-          targetUserId,
+          user.id,
           scheduledTime,
         );
       }
@@ -243,7 +191,8 @@ export class CallService {
       console.warn('Failed to send scheduled call notifications:', error);
     }
 
-    return this.formatCallResponse(savedCall);
+    const hydratedCall = await this.getCallWithRelations(savedCall.id);
+    return this.formatCallResponse(hydratedCall);
   }
 
   async joinCall(
@@ -253,12 +202,7 @@ export class CallService {
   ): Promise<void> {
     const call = await this.callRepository.findOne({
       where: { id: callId },
-      relations: [
-        'channel',
-        'channel.members',
-        'participants',
-        'participants.user',
-      ],
+      relations: ['initiator', 'participants', 'participants.user'],
     });
 
     if (!call) {
@@ -277,13 +221,7 @@ export class CallService {
       throw new NotFoundException('User not found');
     }
 
-    // Check if user is member of channel
-    const isMember = call.channel.members.some(
-      (member) => member.id === userId,
-    );
-    if (!isMember) {
-      throw new ForbiddenException('Access denied to this call');
-    }
+    const isInitiator = call.initiator.id === userId;
 
     // Check if user is already a participant
     let participant = call.participants.find((p) => p.user.id === userId);
@@ -298,7 +236,11 @@ export class CallService {
       participant.isMuted = false;
       participant.isVideoOff = !(joinCallDto.withVideo || false);
     } else {
-      // Create new participant
+      if (!isInitiator) {
+        throw new ForbiddenException('User is not invited to this call');
+      }
+
+      // Create new participant for initiator (scheduled calls)
       participant = this.callParticipantRepository.create({
         call,
         user,
@@ -367,55 +309,35 @@ export class CallService {
     await this.callParticipantRepository.save(participant);
   }
 
-  async findByChannel(
-    channelId: string,
-    userId: string,
-  ): Promise<CallResponseDto[]> {
-    const channel = await this.channelRepository.findOne({
-      where: { id: channelId },
-      relations: ['members'],
-    });
-
-    if (!channel) {
-      throw new NotFoundException('Channel not found');
-    }
-
-    // Check if user is member of channel
-    const isMember = channel.members.some((member) => member.id === userId);
-    if (!isMember) {
-      throw new ForbiddenException('Access denied to this channel');
-    }
-
-    const calls = await this.callRepository.find({
-      where: { channel: { id: channelId } },
-      relations: ['initiator', 'channel', 'participants', 'participants.user'],
-      order: { startedAt: 'DESC' },
-    });
-
-    return calls.map((call) => this.formatCallResponse(call));
-  }
-
-  async findOne(id: string, userId: string): Promise<CallResponseDto> {
+  private async getCallWithRelations(callId: string): Promise<Call> {
     const call = await this.callRepository.findOne({
-      where: { id },
-      relations: [
-        'initiator',
-        'channel',
-        'channel.members',
-        'participants',
-        'participants.user',
-      ],
+      where: { id: callId },
+      relations: ['initiator', 'participants', 'participants.user'],
     });
 
     if (!call) {
       throw new NotFoundException('Call not found');
     }
 
-    // Check if user is member of channel
-    const isMember = call.channel.members.some(
-      (member) => member.id === userId,
+    return call;
+  }
+
+  async findOne(id: string, userId: string): Promise<CallResponseDto> {
+    const call = await this.callRepository.findOne({
+      where: { id },
+      relations: ['initiator', 'participants', 'participants.user'],
+    });
+
+    if (!call) {
+      throw new NotFoundException('Call not found');
+    }
+
+    const isInitiator = call.initiator.id === userId;
+    const isParticipant = call.participants.some(
+      (participant) => participant.user.id === userId,
     );
-    if (!isMember) {
+
+    if (!isInitiator && !isParticipant) {
       throw new ForbiddenException('Access denied to this call');
     }
 
@@ -488,11 +410,6 @@ export class CallService {
         id: call.initiator.id,
         firstName: call.initiator.firstName,
         lastName: call.initiator.lastName,
-      },
-      channel: {
-        id: call.channel.id,
-        name: call.channel.name,
-        type: call.channel.type,
       },
       participants:
         call.participants?.map((participant) => ({

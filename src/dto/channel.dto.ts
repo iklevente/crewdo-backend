@@ -7,7 +7,12 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ChannelType, ChannelVisibility } from '../entities';
+import {
+  ChannelType,
+  ChannelVisibility,
+  PresenceStatus,
+  PresenceSource,
+} from '../entities';
 
 export class CreateChannelDto {
   @ApiProperty({ example: 'general' })
@@ -115,9 +120,6 @@ export class ChannelResponseDto {
   isArchived: boolean;
 
   @ApiProperty()
-  isThread: boolean;
-
-  @ApiProperty()
   createdAt: Date;
 
   @ApiProperty()
@@ -138,8 +140,10 @@ export class ChannelResponseDto {
     lastName: string;
     email: string;
     presence?: {
-      status: string;
-      customStatus?: string;
+      status: PresenceStatus;
+      statusSource: PresenceSource;
+      manualStatus?: PresenceStatus | null;
+      lastSeenAt?: Date | null;
     };
   }>;
 

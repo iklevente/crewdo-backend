@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { User } from '../entities';
+import { PresenceService } from '../services/presence.service';
+import { PresenceStatus } from '../entities/presence.entity';
 import { LoginDto, RegisterDto, AuthResponseDto } from '../dto/auth.dto';
 
 interface JwtPayload {
@@ -22,6 +24,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private readonly presenceService: PresenceService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<User | null> {
@@ -44,6 +47,19 @@ export class AuthService {
 
     // Update last login
     await this.usersService.updateLastLogin(user.id);
+
+    // Ensure presence reflects active session immediately
+    try {
+      await this.presenceService.setAutomaticStatus(
+        user.id,
+        PresenceStatus.ONLINE,
+      );
+    } catch (error) {
+      // Avoid blocking login on presence failures but log for traceability
+      console.warn(
+        `Failed to set presence online for user ${user.id}: ${String(error)}`,
+      );
+    }
 
     return {
       access_token,

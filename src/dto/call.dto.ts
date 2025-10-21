@@ -23,10 +23,6 @@ export enum CallStatus {
 }
 
 export class StartCallDto {
-  @ApiProperty({ example: 'channel-uuid-here' })
-  @IsUUID()
-  channelId: string;
-
   @ApiProperty({ enum: CallType, example: CallType.VOICE })
   @IsEnum(CallType)
   type: CallType;
@@ -44,10 +40,6 @@ export class StartCallDto {
 }
 
 export class ScheduleCallDto {
-  @ApiProperty({ example: 'channel-uuid-here' })
-  @IsUUID()
-  channelId: string;
-
   @ApiProperty({ enum: CallType, example: CallType.VIDEO })
   @IsEnum(CallType)
   type: CallType;
@@ -155,13 +147,6 @@ export class CallResponseDto {
     firstName: string;
     lastName: string;
     avatar?: string;
-  };
-
-  @ApiProperty()
-  channel: {
-    id: string;
-    name: string;
-    type: string;
   };
 
   @ApiProperty()

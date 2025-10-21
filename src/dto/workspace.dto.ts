@@ -74,12 +74,6 @@ export class WorkspaceResponseDto {
   @ApiProperty()
   isPublic: boolean;
 
-  @ApiPropertyOptional()
-  avatar?: string;
-
-  @ApiPropertyOptional()
-  banner?: string;
-
   @ApiProperty()
   createdAt: Date;
 

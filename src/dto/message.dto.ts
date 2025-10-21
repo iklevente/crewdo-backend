@@ -4,7 +4,6 @@ import {
   IsUUID,
   IsArray,
   IsBoolean,
-  IsObject,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -39,16 +38,6 @@ export class CreateMessageDto {
   @IsOptional()
   @IsBoolean()
   isSystemMessage?: boolean;
-
-  @ApiPropertyOptional({
-    example: {
-      type: 'scrum_board',
-      data: { sprintId: 'sprint-123', boardId: 'board-456' },
-    },
-  })
-  @IsOptional()
-  @IsObject()
-  embedData?: any;
 }
 
 export class UpdateMessageDto {
@@ -94,9 +83,6 @@ export class MessageResponseDto {
 
   @ApiProperty()
   isDeleted: boolean;
-
-  @ApiProperty()
-  isSystemMessage: boolean;
 
   @ApiPropertyOptional()
   embedData?: any;

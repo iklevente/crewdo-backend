@@ -30,7 +30,7 @@ interface AuthenticatedRequest {
   user: {
     id: string;
     email: string;
-    role: string;
+    role: UserRole;
   };
 }
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -47,7 +47,7 @@ export class WorkspaceController {
 
   @Post()
   @ApiOperation({
-    summary: 'Create a new workspace (Admin/Project Manager only)',
+    summary: 'Create a new workspace (Admin only)',
   })
   @ApiResponse({
     status: 201,
@@ -56,9 +56,9 @@ export class WorkspaceController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - Admin or Project Manager role required',
+    description: 'Forbidden - Admin role required',
   })
-  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
+  @Roles(UserRole.ADMIN)
   async create(
     @Body() createWorkspaceDto: CreateWorkspaceDto,
     @Request() req: AuthenticatedRequest,
@@ -76,7 +76,7 @@ export class WorkspaceController {
   async findAll(
     @Request() req: AuthenticatedRequest,
   ): Promise<WorkspaceResponseDto[]> {
-    return this.workspaceService.findAll(req.user.id);
+    return this.workspaceService.findAll(req.user.id, req.user.role);
   }
 
   @Get(':id')
@@ -91,7 +91,7 @@ export class WorkspaceController {
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<WorkspaceResponseDto> {
-    return this.workspaceService.findOne(id, req.user.id);
+    return this.workspaceService.findOne(id, req.user.id, req.user.role);
   }
 
   @Patch(':id')
@@ -107,7 +107,12 @@ export class WorkspaceController {
     @Body() updateWorkspaceDto: UpdateWorkspaceDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<WorkspaceResponseDto> {
-    return this.workspaceService.update(id, updateWorkspaceDto, req.user.id);
+    return this.workspaceService.update(
+      id,
+      updateWorkspaceDto,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Delete(':id')
@@ -115,12 +120,12 @@ export class WorkspaceController {
   @ApiParam({ name: 'id', description: 'Workspace ID' })
   @ApiResponse({ status: 204, description: 'Workspace deleted successfully' })
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return this.workspaceService.remove(id, req.user.id);
+    return this.workspaceService.remove(id, req.user.id, req.user.role);
   }
 
   @Post(':id/members/:email')
@@ -140,7 +145,12 @@ export class WorkspaceController {
     @Param('email') email: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return this.workspaceService.addMember(id, email, req.user.id);
+    return this.workspaceService.addMember(
+      id,
+      email,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Delete(':id/members/:userId')
@@ -161,7 +171,12 @@ export class WorkspaceController {
     @Param('userId', ParseUUIDPipe) userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return this.workspaceService.removeMember(id, userId, req.user.id);
+    return this.workspaceService.removeMember(
+      id,
+      userId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Get(':id/members')
@@ -172,6 +187,6 @@ export class WorkspaceController {
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    return this.workspaceService.getMembers(id, req.user.id);
+    return this.workspaceService.getMembers(id, req.user.id, req.user.role);
   }
 }

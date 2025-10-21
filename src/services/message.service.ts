@@ -5,15 +5,16 @@ import {
   BadRequestException,
   Inject,
 } from '@nestjs/common';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import {
   Message,
   User,
   Channel,
   MessageReaction,
-  MessageType,
   Attachment,
   AttachmentType,
+  ChannelVisibility,
+  UserRole,
 } from '../entities/index';
 import {
   CreateMessageDto,
@@ -114,16 +115,10 @@ export class MessageService {
 
     const message = this.messageRepository.create({
       content: createMessageDto.content,
-      type: createMessageDto.isSystemMessage
-        ? MessageType.SYSTEM
-        : MessageType.TEXT,
       author,
       channel,
       replyTo: replyToMessage || undefined,
       mentions: JSON.stringify(mentions),
-      metadata: createMessageDto.embedData
-        ? JSON.stringify(createMessageDto.embedData)
-        : undefined,
     });
 
     const savedMessage = await this.messageRepository.save(message);
@@ -200,7 +195,7 @@ export class MessageService {
       relations: ['author', 'channel', 'attachments'],
     });
 
-    return this.formatMessageResponse(
+    return await this.formatMessageResponse(
       messageWithAttachments || savedMessage,
       authorId,
     );
@@ -224,9 +219,14 @@ export class MessageService {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check access
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const userRole = user?.role ?? UserRole.TEAM_MEMBER;
+
     const isMember = channel.members.some((member) => member.id === userId);
-    if (!isMember) {
+    const isAdmin = userRole === UserRole.ADMIN;
+    const isPublicChannel = channel.visibility === ChannelVisibility.PUBLIC;
+
+    if (!isMember && !isAdmin && !isPublicChannel) {
       throw new ForbiddenException('Access denied to this channel');
     }
 
@@ -278,10 +278,12 @@ export class MessageService {
         ? messages[messages.length - 1].id
         : undefined;
 
+    const formattedMessages = await Promise.all(
+      messages.map((message) => this.formatMessageResponse(message, userId)),
+    );
+
     return {
-      messages: messages.map((message) =>
-        this.formatMessageResponse(message, userId),
-      ),
+      messages: formattedMessages,
       hasMore,
       nextCursor,
     };
@@ -323,7 +325,9 @@ export class MessageService {
       order: { createdAt: 'ASC' },
     });
 
-    return replies.map((reply) => this.formatMessageResponse(reply, userId));
+    return await Promise.all(
+      replies.map((reply) => this.formatMessageResponse(reply, userId)),
+    );
   }
 
   async update(
@@ -386,7 +390,7 @@ export class MessageService {
     }
 
     const updatedMessage = await this.messageRepository.save(message);
-    return this.formatMessageResponse(updatedMessage, userId);
+    return await this.formatMessageResponse(updatedMessage, userId);
   }
 
   async remove(id: string, userId: string): Promise<void> {
@@ -539,8 +543,8 @@ export class MessageService {
       .take(100) // Limit search results
       .getMany();
 
-    return messages.map((message) =>
-      this.formatMessageResponse(message, userId),
+    return await Promise.all(
+      messages.map((message) => this.formatMessageResponse(message, userId)),
     );
   }
 
@@ -571,7 +575,7 @@ export class MessageService {
       throw new ForbiddenException('Access denied to this message');
     }
 
-    return this.formatMessageResponse(message, userId);
+    return await this.formatMessageResponse(message, userId);
   }
 
   async getPinnedMessages(
@@ -609,8 +613,10 @@ export class MessageService {
       order: { createdAt: 'DESC' },
     });
 
-    return pinnedMessages.map((message) =>
-      this.formatMessageResponse(message, userId),
+    return await Promise.all(
+      pinnedMessages.map((message) =>
+        this.formatMessageResponse(message, userId),
+      ),
     );
   }
 
@@ -691,10 +697,10 @@ export class MessageService {
     return AttachmentType.OTHER;
   }
 
-  private formatMessageResponse(
+  private async formatMessageResponse(
     message: Message,
     currentUserId: string,
-  ): MessageResponseDto {
+  ): Promise<MessageResponseDto> {
     // Group reactions by emoji
     interface ReactionGroup {
       id: string;
@@ -735,16 +741,16 @@ export class MessageService {
         return groups;
       }, []) || [];
 
+    const mentionedUsers = await this.resolveMentionedUsers(message);
+    const { threadReplies, threadCount } =
+      await this.resolveThreadMetadata(message);
+
     return {
       id: message.id,
       content: message.content,
       isEdited: message.isEdited,
       isPinned: message.isPinned,
       isDeleted: message.isDeleted,
-      isSystemMessage: message.type === MessageType.SYSTEM,
-      embedData: message.metadata
-        ? (JSON.parse(message.metadata) as unknown)
-        : undefined,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
       editedAt: message.updatedAt, // Use updatedAt as editedAt approximation
@@ -779,9 +785,97 @@ export class MessageService {
           mimeType: attachment.mimeType,
         })) || [],
       reactions: reactionGroups,
-      mentionedUsers: [], // TODO: Load mentioned users by IDs from JSON.parse(message.mentions)
-      threadReplies: [], // TODO: Load thread replies if needed
-      threadCount: 0, // TODO: Count thread replies
+      mentionedUsers,
+      threadReplies,
+      threadCount: threadCount ?? 0,
+    };
+  }
+
+  private async resolveMentionedUsers(
+    message: Message,
+  ): Promise<Array<{ id: string; firstName: string; lastName: string }>> {
+    if (!message.mentions) {
+      return [];
+    }
+
+    let mentionIds: string[] = [];
+    try {
+      const parsed = JSON.parse(message.mentions) as unknown;
+      if (Array.isArray(parsed)) {
+        mentionIds = parsed.filter(
+          (value): value is string => typeof value === 'string',
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `Failed to parse mentions for message ${message.id}:`,
+        error,
+      );
+      return [];
+    }
+
+    if (mentionIds.length === 0) {
+      return [];
+    }
+
+    const users = await this.userRepository.find({
+      where: { id: In(mentionIds) },
+      select: ['id', 'firstName', 'lastName'],
+    });
+
+    const userMap = new Map(users.map((user) => [user.id, user]));
+    return mentionIds
+      .map((id) => userMap.get(id))
+      .filter((user): user is User => Boolean(user))
+      .map((user) => ({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      }));
+  }
+
+  private async resolveThreadMetadata(message: Message): Promise<{
+    threadReplies?: Array<{
+      id: string;
+      content: string;
+      author: { id: string; firstName: string; lastName: string };
+      createdAt: Date;
+    }>;
+    threadCount?: number;
+  }> {
+    if (!message.id || message.replyToId) {
+      return {};
+    }
+
+    const threadCount = await this.messageRepository.count({
+      where: { replyTo: { id: message.id }, isDeleted: false },
+    });
+
+    if (threadCount === 0) {
+      return { threadCount: 0 }; // Explicitly return zero to simplify frontend logic
+    }
+
+    const replies = await this.messageRepository.find({
+      where: { replyTo: { id: message.id }, isDeleted: false },
+      relations: ['author'],
+      order: { createdAt: 'ASC' },
+      take: 3,
+    });
+
+    const formattedReplies = replies.map((reply) => ({
+      id: reply.id,
+      content: reply.content,
+      author: {
+        id: reply.author.id,
+        firstName: reply.author.firstName,
+        lastName: reply.author.lastName,
+      },
+      createdAt: reply.createdAt,
+    }));
+
+    return {
+      threadReplies: formattedReplies,
+      threadCount,
     };
   }
 }

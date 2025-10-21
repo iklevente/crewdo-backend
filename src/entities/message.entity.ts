@@ -13,32 +13,13 @@ import { Channel } from './channel.entity';
 import { MessageReaction } from './message-reaction.entity';
 import { Attachment } from './attachment.entity';
 
-export enum MessageType {
-  TEXT = 'text',
-  IMAGE = 'image',
-  FILE = 'file',
-  VOICE = 'voice',
-  VIDEO = 'video',
-  SYSTEM = 'system',
-  SCRUM_BOARD = 'scrum_board', // Special message type for scrum board embeds
-  CALL_START = 'call_start',
-  CALL_END = 'call_end',
-}
-
 @Entity('messages')
 export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column('text')
+  @Column({ type: 'nvarchar', length: 'MAX' })
   content: string;
-
-  @Column({
-    type: 'varchar',
-    length: 50,
-    default: MessageType.TEXT,
-  })
-  type: MessageType;
 
   @Column({ default: false })
   isEdited: boolean;
@@ -49,10 +30,7 @@ export class Message {
   @Column({ default: false })
   isPinned: boolean;
 
-  @Column('text', { nullable: true })
-  metadata: string; // JSON string for storing additional data like scrum board state, call info, etc.
-
-  @Column('text', { nullable: true })
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
   mentions: string; // JSON string of user IDs mentioned in the message
 
   @Column('uuid', { nullable: true })

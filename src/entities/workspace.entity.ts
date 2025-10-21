@@ -24,17 +24,11 @@ export class Workspace {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'nvarchar', length: 255 })
   name: string;
 
-  @Column('text', { nullable: true })
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
   description: string;
-
-  @Column({ nullable: true })
-  avatar: string;
-
-  @Column({ nullable: true })
-  banner: string;
 
   @Column({
     type: 'varchar',
@@ -45,9 +39,6 @@ export class Workspace {
 
   @Column({ default: false })
   isPublic: boolean;
-
-  @Column('text', { nullable: true })
-  settings: string; // JSON string for workspace-wide settings
 
   @CreateDateColumn()
   createdAt: Date;

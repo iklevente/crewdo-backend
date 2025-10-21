@@ -14,6 +14,9 @@ import { MessageService } from '../services/message.service';
 import { MediaService } from '../services/media.service';
 import { ChannelService } from '../services/channel.service';
 import { CreateMessageDto } from '../dto/message.dto';
+import { PresenceResponseDto } from '../dto/presence.dto';
+import { PresenceService } from '../services/presence.service';
+import { PresenceStatus, UserRole } from '../entities';
 
 interface JwtPayload {
   email: string;
@@ -47,6 +50,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private jwtService: JwtService,
     private mediaService: MediaService,
     private channelService: ChannelService,
+    private presenceService: PresenceService,
   ) {}
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -60,8 +64,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           ? authHeader.replace('Bearer ', '')
           : null);
 
+      this.logger.debug(
+        `WebSocket handshake for socket ${client.id}: token present = ${Boolean(token)}`,
+      );
+
       if (!token) {
-        this.logger.warn('Client connected without token');
+        this.logger.warn(
+          `Client ${client.id} connected without token, disconnecting`,
+        );
         client.disconnect();
         return;
       }
@@ -69,6 +79,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify<JwtPayload>(token);
       client.userId = payload.sub;
       client.user = payload;
+
+      this.logger.debug(
+        `WebSocket authenticated payload for socket ${client.id}: ${JSON.stringify(payload)}`,
+      );
 
       if (!client.userId) {
         client.disconnect();
@@ -84,17 +98,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Join user to their channels
       await this.joinUserChannels(client);
 
-      // Broadcast user online status
-      this.broadcastPresenceUpdate(client.userId, 'online');
+      // Broadcast user online status and share snapshot with newly connected user
+      const presence = await this.presenceService.setAutomaticStatus(
+        client.userId,
+        PresenceStatus.ONLINE,
+      );
+      this.publishPresenceUpdate(presence);
+
+      await this.sendPresenceSnapshot(client.userId);
 
       this.logger.log(
         `User ${client.userId} connected with socket ${client.id}`,
       );
     } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? `${error.name}: ${error.message}`
+          : 'Unknown error';
       this.logger.error(
-        'Authentication failed:',
-        error instanceof Error ? error.message : 'Unknown error',
+        `Authentication failed for socket ${client.id}: ${errorMessage}`,
       );
+      if (error instanceof Error && error.stack) {
+        this.logger.debug(error.stack);
+      }
       client.disconnect();
     }
   }
@@ -109,7 +135,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         // If user has no more connections, mark as offline
         if (userSockets.size === 0) {
           this.connectedUsers.delete(client.userId);
-          this.broadcastPresenceUpdate(client.userId, 'offline');
+          const presence = await this.presenceService.setAutomaticStatus(
+            client.userId,
+            PresenceStatus.OFFLINE,
+          );
+          this.publishPresenceUpdate(presence);
         }
       }
 
@@ -125,8 +155,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { channelId: string },
   ) {
     try {
+      const userRole = this.resolveUserRole(client);
       // Verify user has access to channel
-      await this.channelService.findOne(data.channelId, client.userId!);
+      await this.channelService.findOne(
+        data.channelId,
+        client.userId!,
+        userRole,
+      );
 
       // Join socket to channel room
       await client.join(`channel_${data.channelId}`);
@@ -234,16 +269,48 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('update_presence')
-  handleUpdatePresence(
+  async handleUpdatePresence(
     @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { status: string; customStatus?: string },
+    @MessageBody()
+    data: { status: string; clearManual?: boolean },
   ) {
-    // Update presence in database would be handled by a presence service
-    this.broadcastPresenceUpdate(
-      client.userId!,
-      data.status,
-      data.customStatus,
-    );
+    if (!client.userId) {
+      return;
+    }
+
+    try {
+      let presence: PresenceResponseDto | null = null;
+
+      if (data?.clearManual) {
+        presence = await this.presenceService.clearManualStatus(
+          client.userId,
+          this.isUserOnline(client.userId),
+        );
+      } else if (data?.status) {
+        const normalizedStatus = (data.status || '').toLowerCase();
+        if (
+          !Object.values(PresenceStatus).includes(
+            normalizedStatus as PresenceStatus,
+          )
+        ) {
+          throw new Error('Unsupported presence status');
+        }
+        const status = normalizedStatus as PresenceStatus;
+        presence = await this.presenceService.setManualStatus(
+          client.userId,
+          status,
+        );
+      }
+
+      if (presence) {
+        this.publishPresenceUpdate(presence);
+      }
+    } catch (error) {
+      client.emit('error', {
+        message: 'Failed to update presence',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   }
 
   @SubscribeMessage('start_call')
@@ -373,9 +440,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private async joinUserChannels(client: AuthenticatedSocket) {
     try {
+      const userRole = this.resolveUserRole(client);
       // Get user's DMs
       const dmChannels = await this.channelService.findDirectMessages(
         client.userId!,
+        userRole,
       );
       for (const channel of dmChannels) {
         await client.join(`channel_${channel.id}`);
@@ -392,26 +461,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  private broadcastPresenceUpdate(
-    userId: string,
-    status: string,
-    customStatus?: string,
-  ) {
-    // Get all channels this user is in and broadcast to those channels
-    const userChannels = this.userChannels.get(userId) || new Set();
+  public publishPresenceUpdate(presence: PresenceResponseDto) {
+    const userChannels = this.userChannels.get(presence.userId) || new Set();
 
-    const presenceUpdate = {
-      userId,
-      status,
-      customStatus,
-      timestamp: new Date(),
+    const payload = {
+      ...presence,
+      timestamp: presence.timestamp,
     };
 
     userChannels.forEach((channelId) => {
-      this.server
-        .to(`channel_${channelId}`)
-        .emit('presence_updated', presenceUpdate);
+      this.server.to(`channel_${channelId}`).emit('presence_updated', payload);
     });
+
+    // Emit globally so workspace UI stays in sync outside shared channels
+    this.server.emit('presence_updated', payload);
+  }
+
+  private async sendPresenceSnapshot(userId: string) {
+    const snapshot = await this.presenceService.getAllPresence();
+
+    if (snapshot.length > 0) {
+      this.sendToUser(userId, 'presence_snapshot', snapshot);
+    }
+  }
+
+  public isUserOnline(userId: string): boolean {
+    const sockets = this.connectedUsers.get(userId);
+    return Boolean(sockets && sockets.size > 0);
   }
 
   // Method to send message to specific user (for notifications, etc.)
@@ -422,6 +498,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server.to(socketId).emit(event, data);
       });
     }
+  }
+
+  private resolveUserRole(client: AuthenticatedSocket): UserRole {
+    const role = client.user?.role;
+    if (role && (Object.values(UserRole) as string[]).includes(role)) {
+      return role as UserRole;
+    }
+    return UserRole.TEAM_MEMBER;
   }
 
   // Method to send message to channel
@@ -568,6 +652,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.channelService.markMessagesAsRead(
         data.channelId,
         client.userId!,
+        this.resolveUserRole(client),
         data.upToMessageId,
       );
 

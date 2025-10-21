@@ -17,10 +17,8 @@ import { Workspace } from './workspace.entity';
 
 export enum ChannelType {
   TEXT = 'text',
-  VOICE = 'voice',
   DM = 'dm',
   GROUP_DM = 'group_dm',
-  PROJECT = 'project', // Integrated with project/scrum board
 }
 
 export enum ChannelVisibility {
@@ -33,10 +31,10 @@ export class Channel {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'nvarchar', length: 255 })
   name: string;
 
-  @Column('text', { nullable: true })
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
   description: string;
 
   @Column({
@@ -53,19 +51,13 @@ export class Channel {
   })
   visibility: ChannelVisibility;
 
-  @Column({ nullable: true })
+  @Column({ type: 'nvarchar', length: 255, nullable: true })
   topic: string;
 
   @Column({ default: false })
   isArchived: boolean;
 
-  @Column({ default: false })
-  isThread: boolean;
-
-  @Column('uuid', { nullable: true })
-  parentChannelId: string; // For threads
-
-  @Column('text', { nullable: true })
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
   settings: string; // JSON string for channel-specific settings like notifications, permissions
 
   @CreateDateColumn()
@@ -99,14 +91,7 @@ export class Channel {
   project: Project;
 
   @Column('uuid', { nullable: true })
-  projectId: string;
-
-  @OneToMany(() => Channel, (channel) => channel.parentChannel)
-  threads: Channel[];
-
-  @ManyToOne(() => Channel, (channel) => channel.threads, { nullable: true })
-  @JoinColumn({ name: 'parentChannelId' })
-  parentChannel: Channel;
+  projectId: string | null;
 
   // Workspace relationship
   @ManyToOne(() => Workspace, { nullable: true })

@@ -5,7 +5,7 @@ import {
   BadRequestException,
   Inject,
 } from '@nestjs/common';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, FindManyOptions } from 'typeorm';
 import {
   Workspace,
   User,
@@ -16,12 +16,15 @@ import {
   MessageReadReceipt,
   ChannelType,
   ChannelVisibility,
+  UserRole,
+  UserPresence,
 } from '../entities/index';
 import {
   CreateWorkspaceDto,
   UpdateWorkspaceDto,
   WorkspaceResponseDto,
 } from '../dto/workspace.dto';
+import { ChatGateway } from '../websocket/chat.gateway';
 
 @Injectable()
 export class WorkspaceService {
@@ -32,10 +35,12 @@ export class WorkspaceService {
   private messageRepository: Repository<Message>;
   private callRepository: Repository<Call>;
   private messageReadReceiptRepository: Repository<MessageReadReceipt>;
+  private presenceRepository: Repository<UserPresence>;
 
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
+    private readonly chatGateway: ChatGateway,
   ) {
     this.workspaceRepository = this.dataSource.getRepository(Workspace);
     this.userRepository = this.dataSource.getRepository(User);
@@ -45,6 +50,7 @@ export class WorkspaceService {
     this.callRepository = this.dataSource.getRepository(Call);
     this.messageReadReceiptRepository =
       this.dataSource.getRepository(MessageReadReceipt);
+    this.presenceRepository = this.dataSource.getRepository(UserPresence);
   }
 
   async create(
@@ -87,12 +93,18 @@ export class WorkspaceService {
 
     await this.channelRepository.save(generalChannel);
 
-    return this.formatWorkspaceResponse(savedWorkspace);
+    return await this.formatWorkspaceResponse(
+      savedWorkspace,
+      ownerId,
+      owner.role,
+    );
   }
 
-  async findAll(userId: string): Promise<WorkspaceResponseDto[]> {
-    const workspaces = await this.workspaceRepository.find({
-      where: [{ owner: { id: userId } }, { members: { id: userId } }],
+  async findAll(
+    userId: string,
+    userRole: UserRole,
+  ): Promise<WorkspaceResponseDto[]> {
+    const baseFindOptions: FindManyOptions<Workspace> = {
       relations: [
         'owner',
         'members',
@@ -101,14 +113,28 @@ export class WorkspaceService {
         'channels.creator',
       ],
       order: { updatedAt: 'DESC' },
-    });
+    };
 
-    return workspaces.map((workspace) =>
-      this.formatWorkspaceResponse(workspace),
+    const workspaces =
+      userRole === UserRole.ADMIN
+        ? await this.workspaceRepository.find(baseFindOptions)
+        : await this.workspaceRepository.find({
+            ...baseFindOptions,
+            where: [{ owner: { id: userId } }, { members: { id: userId } }],
+          });
+
+    return await Promise.all(
+      workspaces.map((workspace) =>
+        this.formatWorkspaceResponse(workspace, userId, userRole),
+      ),
     );
   }
 
-  async findOne(id: string, userId: string): Promise<WorkspaceResponseDto> {
+  async findOne(
+    id: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<WorkspaceResponseDto> {
     const workspace = await this.workspaceRepository.findOne({
       where: { id },
       relations: [
@@ -118,6 +144,7 @@ export class WorkspaceService {
         'channels.members',
         'channels.creator',
         'channels.messages',
+        'channels.messages.author',
       ],
     });
 
@@ -125,19 +152,21 @@ export class WorkspaceService {
       throw new NotFoundException('Workspace not found');
     }
 
-    // Check if user is member of workspace
-    const isMember = workspace.members.some((member) => member.id === userId);
-    if (!isMember) {
-      throw new ForbiddenException('Access denied to this workspace');
+    if (userRole !== UserRole.ADMIN) {
+      const isMember = workspace.members.some((member) => member.id === userId);
+      if (!isMember) {
+        throw new ForbiddenException('Access denied to this workspace');
+      }
     }
 
-    return this.formatWorkspaceResponse(workspace);
+    return await this.formatWorkspaceResponse(workspace, userId, userRole);
   }
 
   async update(
     id: string,
     updateWorkspaceDto: UpdateWorkspaceDto,
     userId: string,
+    userRole: UserRole,
   ): Promise<WorkspaceResponseDto> {
     const workspace = await this.workspaceRepository.findOne({
       where: { id },
@@ -148,18 +177,26 @@ export class WorkspaceService {
       throw new NotFoundException('Workspace not found');
     }
 
-    // Only owner can update workspace
-    if (workspace.owner.id !== userId) {
-      throw new ForbiddenException('Only workspace owner can update workspace');
+    const isOwner = workspace.owner.id === userId;
+    const isAdmin = userRole === UserRole.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'Only workspace owner or admin can update workspace',
+      );
     }
 
     Object.assign(workspace, updateWorkspaceDto);
     const updatedWorkspace = await this.workspaceRepository.save(workspace);
 
-    return this.formatWorkspaceResponse(updatedWorkspace);
+    return await this.formatWorkspaceResponse(
+      updatedWorkspace,
+      userId,
+      userRole,
+    );
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
     const workspace = await this.workspaceRepository.findOne({
       where: { id },
       relations: ['owner'],
@@ -169,9 +206,13 @@ export class WorkspaceService {
       throw new NotFoundException('Workspace not found');
     }
 
-    // Only owner can delete workspace
-    if (workspace.owner.id !== userId) {
-      throw new ForbiddenException('Only workspace owner can delete workspace');
+    const isOwner = workspace.owner.id === userId;
+    const isAdmin = userRole === UserRole.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'Only workspace owner or admin can delete workspace',
+      );
     }
 
     // Manual cascading delete - delete dependent entities first
@@ -189,7 +230,6 @@ export class WorkspaceService {
       await this.messageReadReceiptRepository.delete({
         channelId: In(channelIds),
       });
-      await this.callRepository.delete({ channelId: In(channelIds) });
       await this.messageRepository.delete({ channelId: In(channelIds) });
     }
 
@@ -207,6 +247,7 @@ export class WorkspaceService {
     workspaceId: string,
     userEmail: string,
     inviterId: string,
+    userRole: UserRole,
   ): Promise<void> {
     const workspace = await this.workspaceRepository.findOne({
       where: { id: workspaceId },
@@ -217,13 +258,13 @@ export class WorkspaceService {
       throw new NotFoundException('Workspace not found');
     }
 
-    // Check if inviter is member or owner
-    const isInviterMember =
-      workspace.members.some((member) => member.id === inviterId) ||
-      workspace.owner.id === inviterId;
+    const isOwner = workspace.owner.id === inviterId;
+    const isAdmin = userRole === UserRole.ADMIN;
 
-    if (!isInviterMember) {
-      throw new ForbiddenException('Access denied');
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'Only workspace owner or admin can add members',
+      );
     }
 
     const user = await this.userRepository.findOne({
@@ -257,12 +298,23 @@ export class WorkspaceService {
       generalChannel.members.push(user);
       await this.channelRepository.save(generalChannel);
     }
+
+    this.notifyWorkspaceMembers(workspace, 'workspace_member_added', {
+      workspaceId,
+      member: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+      },
+    });
   }
 
   async removeMember(
     workspaceId: string,
     userId: string,
     removerId: string,
+    userRole: UserRole,
   ): Promise<void> {
     const workspace = await this.workspaceRepository.findOne({
       where: { id: workspaceId },
@@ -278,9 +330,14 @@ export class WorkspaceService {
       throw new BadRequestException('Workspace owner cannot be removed');
     }
 
-    // Only owner can remove members (or members can remove themselves)
-    if (workspace.owner.id !== removerId && userId !== removerId) {
-      throw new ForbiddenException('Only workspace owner can remove members');
+    const isOwner = workspace.owner.id === removerId;
+    const isAdmin = userRole === UserRole.ADMIN;
+    const isSelfRemoval = userId === removerId;
+
+    if (!isOwner && !isAdmin && !isSelfRemoval) {
+      throw new ForbiddenException(
+        'Only workspace owner or admin can remove members',
+      );
     }
 
     workspace.members = workspace.members.filter(
@@ -300,23 +357,60 @@ export class WorkspaceService {
       );
       await this.channelRepository.save(channel);
     }
+
+    this.notifyWorkspaceMembers(workspace, 'workspace_member_removed', {
+      workspaceId,
+      memberId: userId,
+    });
   }
 
-  async getMembers(workspaceId: string, userId: string) {
+  async getMembers(workspaceId: string, userId: string, userRole: UserRole) {
     const workspace = await this.workspaceRepository.findOne({
       where: { id: workspaceId },
-      relations: ['owner', 'members', 'members.presence'],
+      relations: ['owner', 'members'],
     });
 
     if (!workspace) {
       throw new NotFoundException('Workspace not found');
     }
 
-    // Check if user is member
-    const isMember = workspace.members.some((member) => member.id === userId);
-    if (!isMember) {
-      throw new ForbiddenException('Access denied');
+    if (userRole !== UserRole.ADMIN) {
+      const isMember = workspace.members.some((member) => member.id === userId);
+      if (!isMember) {
+        throw new ForbiddenException('Access denied');
+      }
     }
+
+    const allMemberIds = [
+      workspace.owner.id,
+      ...workspace.members.map((member) => member.id),
+    ];
+
+    const presenceRecords = allMemberIds.length
+      ? await this.presenceRepository.find({
+          where: { userId: In(allMemberIds) },
+        })
+      : [];
+
+    const presenceMap = new Map<string, UserPresence>(
+      presenceRecords.map((record) => [record.userId, record]),
+    );
+
+    const serializePresence = (targetId: string) => {
+      const presence = presenceMap.get(targetId);
+      if (!presence) {
+        return undefined;
+      }
+      return {
+        status: presence.status,
+        statusSource: presence.statusSource,
+        manualStatus: presence.manualStatus,
+        lastSeenAt: presence.lastSeenAt
+          ? presence.lastSeenAt.toISOString()
+          : null,
+        timestamp: presence.updatedAt.toISOString(),
+      };
+    };
 
     return {
       owner: {
@@ -324,24 +418,117 @@ export class WorkspaceService {
         firstName: workspace.owner.firstName,
         lastName: workspace.owner.lastName,
         email: workspace.owner.email,
+        profilePicture: workspace.owner.profilePicture,
+        presence: serializePresence(workspace.owner.id),
       },
-      members: workspace.members.map((member) => ({
-        id: member.id,
-        firstName: member.firstName,
-        lastName: member.lastName,
-        email: member.email,
-        joinedAt: member.createdAt, // You might want to add a separate joinedAt field
-      })),
+      members: workspace.members
+        .filter((member) => member.id !== workspace.owner.id)
+        .map((member) => ({
+          id: member.id,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          email: member.email,
+          profilePicture: member.profilePicture,
+          joinedAt: member.createdAt, // You might want to add a separate joinedAt field
+          presence: serializePresence(member.id),
+        })),
     };
   }
 
-  private formatWorkspaceResponse(workspace: Workspace): WorkspaceResponseDto {
+  private async formatWorkspaceResponse(
+    workspace: Workspace,
+    viewerId: string,
+    viewerRole: UserRole,
+  ): Promise<WorkspaceResponseDto> {
+    const channels = (workspace.channels as Channel[] | undefined) || [];
+    const visibleChannels = channels.filter((channel) => {
+      if (!viewerId) {
+        return true;
+      }
+      if (viewerRole === UserRole.ADMIN) {
+        return true;
+      }
+      if (channel.visibility !== ChannelVisibility.PRIVATE) {
+        return true;
+      }
+      const members = (channel.members as User[] | undefined) || [];
+      return members.some((member) => member.id === viewerId);
+    });
+
+    const unreadCounts = await this.getUnreadCountsForChannels(
+      visibleChannels,
+      viewerId,
+    );
+
+    const channelSummaries = await Promise.all(
+      visibleChannels.map(async (channel) => {
+        const messages = channel.messages as Message[] | undefined;
+
+        let formattedLastMessage:
+          | {
+              id: string;
+              content: string;
+              author: {
+                id: string;
+                firstName: string;
+                lastName: string;
+              };
+              createdAt: Date;
+            }
+          | undefined;
+
+        if (messages && messages.length > 0) {
+          const lastMessage = messages[messages.length - 1];
+          const lastMessageAuthor = lastMessage?.author;
+          if (lastMessage && lastMessageAuthor) {
+            formattedLastMessage = {
+              id: lastMessage.id,
+              content: lastMessage.content,
+              author: {
+                id: lastMessageAuthor.id,
+                firstName: lastMessageAuthor.firstName,
+                lastName: lastMessageAuthor.lastName,
+              },
+              createdAt: lastMessage.createdAt,
+            };
+          }
+        } else {
+          const lastMessage = await this.messageRepository.findOne({
+            where: { channelId: channel.id, isDeleted: false },
+            relations: ['author'],
+            order: { createdAt: 'DESC' },
+          });
+
+          if (lastMessage?.author) {
+            formattedLastMessage = {
+              id: lastMessage.id,
+              content: lastMessage.content,
+              author: {
+                id: lastMessage.author.id,
+                firstName: lastMessage.author.firstName,
+                lastName: lastMessage.author.lastName,
+              },
+              createdAt: lastMessage.createdAt,
+            };
+          }
+        }
+
+        return {
+          id: channel.id,
+          name: channel.name,
+          type: channel.type,
+          visibility: channel.visibility,
+          unreadCount: unreadCounts[channel.id] ?? 0,
+          lastMessage: formattedLastMessage,
+        };
+      }),
+    );
+
     return {
       id: workspace.id,
       name: workspace.name,
       description: workspace.description,
       type: workspace.type,
-      avatar: workspace.avatar,
       isPublic: workspace.isPublic,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
@@ -353,34 +540,82 @@ export class WorkspaceService {
       },
       memberCount: workspace.members?.length || 0,
       channelCount: workspace.channels?.length || 0,
-      channels:
-        (workspace.channels as Channel[] | undefined)?.map((channel) => {
-          const messages = channel.messages as Message[] | undefined;
-          const lastMessage =
-            messages && messages.length > 0
-              ? messages[messages.length - 1]
-              : undefined;
-
-          return {
-            id: channel.id,
-            name: channel.name,
-            type: channel.type,
-            visibility: channel.visibility,
-            unreadCount: 0, // TODO: Calculate actual unread count
-            lastMessage: lastMessage
-              ? {
-                  id: lastMessage.id,
-                  content: lastMessage.content,
-                  author: {
-                    id: lastMessage.author.id,
-                    firstName: lastMessage.author.firstName,
-                    lastName: lastMessage.author.lastName,
-                  },
-                  createdAt: lastMessage.createdAt,
-                }
-              : undefined,
-          };
-        }) || [],
+      channels: channelSummaries,
     };
+  }
+
+  private async getUnreadCountsForChannels(
+    channels: Channel[],
+    viewerId: string,
+  ): Promise<Record<string, number>> {
+    if (!viewerId || channels.length === 0) {
+      return {};
+    }
+
+    const channelIds = channels
+      .map((channel) => channel.id)
+      .filter((id): id is string => Boolean(id));
+
+    if (channelIds.length === 0) {
+      return {};
+    }
+
+    const readReceiptRows = await this.messageReadReceiptRepository
+      .createQueryBuilder('receipt')
+      .select('receipt.channelId', 'channelId')
+      .addSelect('MAX(receipt.readAt)', 'lastReadAt')
+      .where('receipt.userId = :userId', { userId: viewerId })
+      .andWhere('receipt.channelId IN (:...channelIds)', { channelIds })
+      .groupBy('receipt.channelId')
+      .getRawMany<{ channelId: string; lastReadAt: string | null }>();
+
+    const lastReadMap = new Map<string, Date>(
+      readReceiptRows
+        .filter((row) => row.lastReadAt)
+        .map((row) => [row.channelId, new Date(row.lastReadAt as string)]),
+    );
+
+    const unreadEntries = await Promise.all(
+      channelIds.map(async (channelId) => {
+        const query = this.messageRepository
+          .createQueryBuilder('message')
+          .select('COUNT(message.id)', 'count')
+          .where('message.channelId = :channelId', { channelId })
+          .andWhere('message.isDeleted = :isDeleted', { isDeleted: false })
+          .andWhere('message.authorId != :userId', { userId: viewerId });
+
+        const lastReadAt = lastReadMap.get(channelId);
+        if (lastReadAt) {
+          query.andWhere('message.createdAt > :lastReadAt', { lastReadAt });
+        }
+
+        const result = await query.getRawOne<{ count?: string }>();
+        return [channelId, result?.count ? Number(result.count) : 0];
+      }),
+    );
+
+    return Object.fromEntries(unreadEntries) as Record<string, number>;
+  }
+
+  private notifyWorkspaceMembers(
+    workspace: Workspace,
+    event: string,
+    payload: Record<string, any>,
+  ) {
+    const recipients = new Set<string>();
+
+    if (workspace.owner?.id) {
+      recipients.add(workspace.owner.id);
+    }
+
+    workspace.members?.forEach((member) => {
+      if (member.id) {
+        recipients.add(member.id);
+      }
+    });
+
+    recipients.forEach((userId) => {
+      this.chatGateway.sendToUser(userId, event, payload);
+    });
   }
 }

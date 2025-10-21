@@ -38,11 +38,13 @@ import {
 } from '../dto/message.dto';
 import { MarkAsReadDto, ReadReceiptResponseDto } from '../dto/read-receipt.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UserRole } from '../entities';
 
 interface AuthenticatedRequest extends Request {
   user: {
     id: string;
-    workspaceId: number;
+    role: UserRole;
+    [key: string]: unknown;
   };
 }
 
@@ -285,6 +287,7 @@ export class MessageController {
     await this.channelService.markMessagesAsRead(
       channelId,
       req.user.id,
+      req.user.role,
       markAsReadDto.upToMessageId,
     );
 

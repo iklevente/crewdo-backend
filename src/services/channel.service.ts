@@ -13,6 +13,9 @@ import {
   ChannelVisibility,
   Message,
   MessageReadReceipt,
+  Workspace,
+  UserRole,
+  UserPresence,
 } from '../entities/index';
 import {
   CreateChannelDto,
@@ -25,8 +28,10 @@ import {
 export class ChannelService {
   private channelRepository: Repository<Channel>;
   private userRepository: Repository<User>;
+  private workspaceRepository: Repository<Workspace>;
   private messageRepository: Repository<Message>;
   private readReceiptRepository: Repository<MessageReadReceipt>;
+  private presenceRepository: Repository<UserPresence>;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -34,20 +39,44 @@ export class ChannelService {
   ) {
     this.channelRepository = this.dataSource.getRepository(Channel);
     this.userRepository = this.dataSource.getRepository(User);
+    this.workspaceRepository = this.dataSource.getRepository(Workspace);
     this.messageRepository = this.dataSource.getRepository(Message);
     this.readReceiptRepository =
       this.dataSource.getRepository(MessageReadReceipt);
+    this.presenceRepository = this.dataSource.getRepository(UserPresence);
   }
 
   async create(
     createChannelDto: CreateChannelDto,
     userId: string,
+    userRole: UserRole,
   ): Promise<ChannelResponseDto> {
     const creator = await this.userRepository.findOne({
       where: { id: userId },
     });
     if (!creator) {
       throw new NotFoundException('Creator not found');
+    }
+
+    let workspace: Workspace | null = null;
+    if (createChannelDto.workspaceId) {
+      workspace = await this.workspaceRepository.findOne({
+        where: { id: createChannelDto.workspaceId },
+        relations: ['owner'],
+      });
+
+      if (!workspace) {
+        throw new NotFoundException('Workspace not found');
+      }
+
+      const isAdmin = userRole === UserRole.ADMIN;
+      const isWorkspaceOwner = workspace.owner?.id === userId;
+
+      if (!isAdmin && !isWorkspaceOwner) {
+        throw new ForbiddenException(
+          'Only workspace owner or admin can create channels',
+        );
+      }
     }
 
     // Get initial members
@@ -72,6 +101,10 @@ export class ChannelService {
       members,
     });
 
+    if (workspace) {
+      channel.workspace = workspace;
+    }
+
     const savedChannel = await this.channelRepository.save(channel);
     return this.formatChannelResponse(savedChannel, userId);
   }
@@ -79,7 +112,9 @@ export class ChannelService {
   async createDirectMessage(
     createDmDto: CreateDirectMessageDto,
     userId: string,
+    _userRole: UserRole,
   ): Promise<ChannelResponseDto> {
+    void _userRole;
     const currentUser = await this.userRepository.findOne({
       where: { id: userId },
     });
@@ -127,13 +162,31 @@ export class ChannelService {
     // Create new DM
     const channelType =
       allUserIds.length === 2 ? ChannelType.DM : ChannelType.GROUP_DM;
+    const describeUser = (user: User | undefined): string => {
+      if (!user) {
+        return 'Unknown user';
+      }
+      const fullName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+      if (fullName.length > 0) {
+        return fullName;
+      }
+      return user.email;
+    };
+
+    const otherParticipants = users.filter(
+      (participant) => participant.id !== userId,
+    );
     const channelName =
-      createDmDto.name ||
-      (channelType === ChannelType.DM
-        ? users.find((u) => u.id !== userId)?.firstName +
-          ' ' +
-          users.find((u) => u.id !== userId)?.lastName
-        : users.map((u) => u.firstName).join(', '));
+      createDmDto.name?.trim() && createDmDto.name.trim().length > 0
+        ? createDmDto.name.trim()
+        : channelType === ChannelType.DM
+          ? [describeUser(currentUser), describeUser(otherParticipants[0])]
+              .filter(Boolean)
+              .join(', ')
+          : [
+              describeUser(currentUser),
+              ...otherParticipants.map(describeUser),
+            ].join(', ');
 
     const channel = this.channelRepository.create({
       name: channelName,
@@ -151,6 +204,7 @@ export class ChannelService {
   async findByWorkspace(
     workspaceId: string,
     userId: string,
+    userRole: UserRole,
   ): Promise<ChannelResponseDto[]> {
     try {
       // First, check if the workspace exists
@@ -159,13 +213,24 @@ export class ChannelService {
       }
 
       // Simplified query to avoid complex joins that might fail
-      const channels = await this.channelRepository
+      const queryBuilder = this.channelRepository
         .createQueryBuilder('channel')
         .leftJoinAndSelect('channel.members', 'members')
         .leftJoinAndSelect('channel.creator', 'creator')
         .where('channel.workspaceId = :workspaceId', { workspaceId })
-        .andWhere('channel.isArchived = :isArchived', { isArchived: false })
-        .andWhere('members.id = :userId', { userId })
+        .andWhere('channel.isArchived = :isArchived', { isArchived: false });
+
+      if (userRole !== UserRole.ADMIN) {
+        queryBuilder.andWhere(
+          '(members.id = :userId OR channel.visibility = :publicVisibility)',
+          {
+            userId,
+            publicVisibility: ChannelVisibility.PUBLIC,
+          },
+        );
+      }
+
+      const channels = await queryBuilder
         .orderBy('channel.createdAt', 'ASC')
         .getMany();
 
@@ -198,7 +263,11 @@ export class ChannelService {
     }
   }
 
-  async findDirectMessages(userId: string): Promise<ChannelResponseDto[]> {
+  async findDirectMessages(
+    userId: string,
+    _userRole: UserRole,
+  ): Promise<ChannelResponseDto[]> {
+    void _userRole;
     const channels = await this.channelRepository
       .createQueryBuilder('channel')
       .leftJoinAndSelect('channel.members', 'members')
@@ -216,7 +285,11 @@ export class ChannelService {
     );
   }
 
-  async findOne(id: string, userId: string): Promise<ChannelResponseDto> {
+  async findOne(
+    id: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<ChannelResponseDto> {
     const channel = await this.channelRepository
       .createQueryBuilder('channel')
       .leftJoinAndSelect('channel.members', 'members')
@@ -232,7 +305,12 @@ export class ChannelService {
 
     // Check if user has access
     const isMember = channel.members.some((member) => member.id === userId);
-    if (!isMember && channel.visibility === ChannelVisibility.PRIVATE) {
+    const isAdmin = userRole === UserRole.ADMIN;
+    if (
+      !isAdmin &&
+      !isMember &&
+      channel.visibility === ChannelVisibility.PRIVATE
+    ) {
       throw new ForbiddenException('Access denied to this channel');
     }
 
@@ -243,6 +321,7 @@ export class ChannelService {
     id: string,
     updateChannelDto: UpdateChannelDto,
     userId: string,
+    userRole: UserRole,
   ): Promise<ChannelResponseDto> {
     const channel = await this.channelRepository.findOne({
       where: { id },
@@ -254,8 +333,13 @@ export class ChannelService {
     }
 
     // Check permissions - only creator or workspace admin can update
-    if (channel.creatorId !== userId) {
-      throw new ForbiddenException('Only channel creator can update channel');
+    const isCreator = channel.creatorId === userId;
+    const isAdmin = userRole === UserRole.ADMIN;
+
+    if (!isCreator && !isAdmin) {
+      throw new ForbiddenException(
+        'Only channel creator or admin can update channel',
+      );
     }
 
     // Update fields
@@ -279,7 +363,7 @@ export class ChannelService {
     return this.formatChannelResponse(updatedChannel, userId);
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
     const channel = await this.channelRepository.findOne({
       where: { id },
       relations: ['creator', 'members'],
@@ -290,8 +374,13 @@ export class ChannelService {
     }
 
     // Check permissions - only creator can delete
-    if (channel.creatorId !== userId) {
-      throw new ForbiddenException('Only channel creator can delete channel');
+    const isCreator = channel.creatorId === userId;
+    const isAdmin = userRole === UserRole.ADMIN;
+
+    if (!isCreator && !isAdmin) {
+      throw new ForbiddenException(
+        'Only channel creator or admin can delete channel',
+      );
     }
 
     // For DM channels, just remove the user instead of deleting
@@ -315,22 +404,25 @@ export class ChannelService {
     channelId: string,
     userId: string,
     requesterId: string,
+    userRole: UserRole,
   ): Promise<void> {
     const channel = await this.channelRepository.findOne({
       where: { id: channelId },
-      relations: ['members', 'creator'],
+      relations: ['members', 'creator', 'workspace', 'workspace.owner'],
     });
 
     if (!channel) {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check permissions
-    const requesterIsMember = channel.members.some(
-      (member) => member.id === requesterId,
-    );
-    if (!requesterIsMember && channel.creatorId !== requesterId) {
-      throw new ForbiddenException('Access denied');
+    const isCreator = channel.creatorId === requesterId;
+    const isAdmin = userRole === UserRole.ADMIN;
+    const isWorkspaceOwner = channel.workspace?.owner?.id === requesterId;
+
+    if (!isCreator && !isAdmin && !isWorkspaceOwner) {
+      throw new ForbiddenException(
+        'Only channel creator, workspace owner, or admin can add members',
+      );
     }
 
     const userToAdd = await this.userRepository.findOne({
@@ -357,21 +449,23 @@ export class ChannelService {
     channelId: string,
     userId: string,
     requesterId: string,
+    userRole: UserRole,
   ): Promise<void> {
     const channel = await this.channelRepository.findOne({
       where: { id: channelId },
-      relations: ['members', 'creator'],
+      relations: ['members', 'creator', 'workspace', 'workspace.owner'],
     });
 
     if (!channel) {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check permissions - creator, the user themselves, or workspace admin
-    const canRemove =
-      channel.creatorId === requesterId || userId === requesterId;
+    const isCreator = channel.creatorId === requesterId;
+    const isAdmin = userRole === UserRole.ADMIN;
+    const isWorkspaceOwner = channel.workspace?.owner?.id === requesterId;
+    const isSelfRemoval = userId === requesterId;
 
-    if (!canRemove) {
+    if (!isCreator && !isAdmin && !isWorkspaceOwner && !isSelfRemoval) {
       throw new ForbiddenException('Access denied');
     }
 
@@ -416,6 +510,7 @@ export class ChannelService {
   async markMessagesAsRead(
     channelId: string,
     userId: string,
+    userRole: UserRole,
     upToMessageId?: string,
   ): Promise<void> {
     // Verify user has access to the channel
@@ -429,7 +524,9 @@ export class ChannelService {
     }
 
     const isMember = channel.members.some((member) => member.id === userId);
-    if (!isMember) {
+    const isAdmin = userRole === UserRole.ADMIN;
+
+    if (!isMember && !isAdmin) {
       throw new ForbiddenException('Access denied to this channel');
     }
 
@@ -532,6 +629,43 @@ export class ChannelService {
         }
       }
 
+      let members = (channel.members as User[] | undefined) || [];
+      if (members.length === 0) {
+        const reloaded = await this.channelRepository.findOne({
+          where: { id: channel.id },
+          relations: ['members'],
+        });
+        members = reloaded?.members || [];
+      }
+
+      let presenceByUser = new Map<string, UserPresence>();
+      if (members.length > 0) {
+        const presenceRecords = await this.presenceRepository.find({
+          where: { userId: In(members.map((member) => member.id)) },
+        });
+        presenceByUser = new Map(
+          presenceRecords.map((presence) => [presence.userId, presence]),
+        );
+      }
+
+      const formattedMembers = members.map((member) => {
+        const presence = presenceByUser.get(member.id);
+        return {
+          id: member.id,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          email: member.email,
+          presence: presence
+            ? {
+                status: presence.status,
+                statusSource: presence.statusSource,
+                manualStatus: presence.manualStatus,
+                lastSeenAt: presence.lastSeenAt,
+              }
+            : undefined,
+        };
+      });
+
       return {
         id: channel.id,
         name: channel.name,
@@ -540,7 +674,6 @@ export class ChannelService {
         visibility: channel.visibility,
         topic: channel.topic,
         isArchived: channel.isArchived,
-        isThread: channel.isThread,
         createdAt: channel.createdAt,
         updatedAt: channel.updatedAt,
         creator: channel.creator
@@ -551,14 +684,7 @@ export class ChannelService {
               email: channel.creator.email,
             }
           : undefined,
-        members:
-          channel.members?.map((member) => ({
-            id: member.id,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            email: member.email,
-            // TODO: Add presence information
-          })) || [],
+        members: formattedMembers,
         workspace: channel.workspace
           ? {
               id: (channel.workspace as { id: string; name: string }).id,

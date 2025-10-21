@@ -20,6 +20,8 @@ import { MediaController } from '../controllers/media.controller';
 
 // Gateway
 import { ChatGateway } from '../websocket/chat.gateway';
+import { PresenceController } from '../controllers/presence.controller';
+import { PresenceService } from '../services/presence.service';
 
 @Module({
   imports: [
@@ -36,6 +38,7 @@ import { ChatGateway } from '../websocket/chat.gateway';
     MessageController,
     CallController,
     MediaController,
+    PresenceController,
   ],
   providers: [
     WorkspaceService,
@@ -44,6 +47,7 @@ import { ChatGateway } from '../websocket/chat.gateway';
     CallService,
     MediaService,
     AttachmentService,
+    PresenceService,
     ChatGateway,
   ],
   exports: [

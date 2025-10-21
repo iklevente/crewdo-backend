@@ -16,7 +16,7 @@ export class MessageReaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'nvarchar', length: 16 })
   emoji: string; // Emoji unicode or custom emoji identifier
 
   @CreateDateColumn()

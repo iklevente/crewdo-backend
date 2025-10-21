@@ -7,7 +7,7 @@ import {
   IsPhoneNumber,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { UserRole } from '../entities';
+import { UserRole, UserStatus } from '../entities';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'john.doe@example.com' })
@@ -102,6 +102,9 @@ export class UserResponseDto {
   @ApiProperty({ enum: UserRole })
   role: UserRole;
 
+  @ApiProperty({ enum: UserStatus })
+  status: UserStatus;
+
   @ApiPropertyOptional()
   phoneNumber?: string;
 
@@ -122,4 +125,7 @@ export class UserResponseDto {
 
   @ApiProperty()
   updatedAt: Date;
+
+  @ApiPropertyOptional()
+  lastLoginAt?: Date;
 }

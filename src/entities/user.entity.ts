@@ -22,7 +22,6 @@ export enum UserRole {
 export enum UserStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
-  SUSPENDED = 'suspended',
 }
 
 @Entity('users')
@@ -30,16 +29,16 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ unique: true, type: 'nvarchar', length: 320 })
   email: string;
 
-  @Column()
+  @Column({ type: 'nvarchar', length: 120 })
   firstName: string;
 
-  @Column()
+  @Column({ type: 'nvarchar', length: 120 })
   lastName: string;
 
-  @Column()
+  @Column({ type: 'nvarchar', length: 255 })
   @Exclude()
   password: string;
 
@@ -57,16 +56,16 @@ export class User {
   })
   status: UserStatus;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'nvarchar', length: 512 })
   profilePicture: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'nvarchar', length: 32 })
   phoneNumber: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'nvarchar', length: 120 })
   department: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, type: 'nvarchar', length: 120 })
   position: string;
 
   @Column({ default: false })

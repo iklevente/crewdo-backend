@@ -34,7 +34,7 @@ interface AuthenticatedRequest {
   user: {
     id: string;
     email: string;
-    role: string;
+    role: UserRole;
   };
 }
 
@@ -56,7 +56,11 @@ export class ChannelController {
     @Body() createChannelDto: CreateChannelDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<ChannelResponseDto> {
-    return await this.channelService.create(createChannelDto, req.user.id);
+    return await this.channelService.create(
+      createChannelDto,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Post('dm')
@@ -73,6 +77,7 @@ export class ChannelController {
     return await this.channelService.createDirectMessage(
       createDmDto,
       req.user.id,
+      req.user.role,
     );
   }
 
@@ -88,7 +93,11 @@ export class ChannelController {
     @Param('workspaceId') workspaceId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<ChannelResponseDto[]> {
-    return await this.channelService.findByWorkspace(workspaceId, req.user.id);
+    return await this.channelService.findByWorkspace(
+      workspaceId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Get('dm')
@@ -101,7 +110,10 @@ export class ChannelController {
   async findDirectMessages(
     @Request() req: AuthenticatedRequest,
   ): Promise<ChannelResponseDto[]> {
-    return await this.channelService.findDirectMessages(req.user.id);
+    return await this.channelService.findDirectMessages(
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Get(':id')
@@ -116,7 +128,7 @@ export class ChannelController {
     @Param('id') id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<ChannelResponseDto> {
-    return await this.channelService.findOne(id, req.user.id);
+    return await this.channelService.findOne(id, req.user.id, req.user.role);
   }
 
   @Patch(':id')
@@ -132,7 +144,12 @@ export class ChannelController {
     @Body() updateChannelDto: UpdateChannelDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<ChannelResponseDto> {
-    return await this.channelService.update(id, updateChannelDto, req.user.id);
+    return await this.channelService.update(
+      id,
+      updateChannelDto,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Delete(':id')
@@ -145,19 +162,19 @@ export class ChannelController {
     @Param('id') id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return await this.channelService.remove(id, req.user.id);
+    return await this.channelService.remove(id, req.user.id, req.user.role);
   }
 
   @Post(':id/members/:userId')
   @ApiOperation({
-    summary: 'Add member to channel (Admin/Project Manager only)',
+    summary: 'Add member to channel (creator, workspace owner, or admin)',
   })
   @ApiParam({ name: 'id', description: 'Channel ID' })
   @ApiParam({ name: 'userId', description: 'User ID to add' })
   @ApiResponse({ status: 201, description: 'Member added successfully' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - Admin or Project Manager role required',
+    description: 'Forbidden - insufficient permissions',
   })
   @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async addMember(
@@ -165,19 +182,24 @@ export class ChannelController {
     @Param('userId') userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return await this.channelService.addMember(id, userId, req.user.id);
+    return await this.channelService.addMember(
+      id,
+      userId,
+      req.user.id,
+      req.user.role,
+    );
   }
 
   @Delete(':id/members/:userId')
   @ApiOperation({
-    summary: 'Remove member from channel (Admin/Project Manager only)',
+    summary: 'Remove member from channel (creator, workspace owner, or admin)',
   })
   @ApiParam({ name: 'id', description: 'Channel ID' })
   @ApiParam({ name: 'userId', description: 'User ID to remove' })
   @ApiResponse({ status: 204, description: 'Member removed successfully' })
   @ApiResponse({
     status: 403,
-    description: 'Forbidden - Admin or Project Manager role required',
+    description: 'Forbidden - insufficient permissions',
   })
   @HttpCode(HttpStatus.NO_CONTENT)
   @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
@@ -186,6 +208,11 @@ export class ChannelController {
     @Param('userId') userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return await this.channelService.removeMember(id, userId, req.user.id);
+    return await this.channelService.removeMember(
+      id,
+      userId,
+      req.user.id,
+      req.user.role,
+    );
   }
 }
