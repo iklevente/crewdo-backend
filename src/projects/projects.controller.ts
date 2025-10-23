@@ -8,12 +8,14 @@ import {
   Delete,
   UseGuards,
   ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -53,9 +55,17 @@ export class ProjectsController {
     description: 'Projects retrieved successfully',
     type: [ProjectResponseDto],
   })
+  @ApiQuery({
+    name: 'workspaceId',
+    required: false,
+    description: 'Workspace identifier to filter projects',
+  })
   @Get()
-  async findAll(@CurrentUser() user: User) {
-    return await this.projectsService.findAll(user.id, user.role);
+  async findAll(
+    @CurrentUser() user: User,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    return await this.projectsService.findAll(user.id, user.role, workspaceId);
   }
 
   @ApiOperation({ summary: 'Get project by ID' })

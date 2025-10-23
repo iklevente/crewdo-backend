@@ -5,7 +5,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { Repository, DataSource, In } from 'typeorm';
-import { Project, User, UserRole, Task } from '../entities';
+import { Project, User, UserRole, Task, Workspace } from '../entities';
 import {
   CreateProjectDto,
   UpdateProjectDto,
@@ -17,6 +17,7 @@ export class ProjectsService {
   private projectRepository: Repository<Project>;
   private userRepository: Repository<User>;
   private taskRepository: Repository<Task>;
+  private workspaceRepository: Repository<Workspace>;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -25,6 +26,7 @@ export class ProjectsService {
     this.projectRepository = this.dataSource.getRepository(Project);
     this.userRepository = this.dataSource.getRepository(User);
     this.taskRepository = this.dataSource.getRepository(Task);
+    this.workspaceRepository = this.dataSource.getRepository(Workspace);
   }
 
   async create(
@@ -34,6 +36,25 @@ export class ProjectsService {
     const owner = await this.userRepository.findOne({ where: { id: ownerId } });
     if (!owner) {
       throw new NotFoundException('Owner not found');
+    }
+
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: createProjectDto.workspaceId },
+      relations: ['members'],
+    });
+
+    if (!workspace) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    const isWorkspaceMember =
+      workspace.ownerId === ownerId ||
+      workspace.members?.some((member) => member.id === ownerId);
+
+    if (!isWorkspaceMember) {
+      throw new ForbiddenException(
+        'You must be a member of the workspace to create a project',
+      );
     }
 
     // Get members if provided
@@ -48,16 +69,22 @@ export class ProjectsService {
       ...createProjectDto,
       ownerId,
       members,
+      workspaceId: workspace.id,
     });
 
     return await this.projectRepository.save(project);
   }
 
-  async findAll(userId: string, userRole: UserRole): Promise<Project[]> {
+  async findAll(
+    userId: string,
+    userRole: UserRole,
+    workspaceId?: string,
+  ): Promise<Project[]> {
     const queryBuilder = this.projectRepository
       .createQueryBuilder('project')
       .leftJoinAndSelect('project.owner', 'owner')
       .leftJoinAndSelect('project.members', 'members')
+      .leftJoinAndSelect('project.workspace', 'workspace')
       .loadRelationCountAndMap('project.taskCount', 'project.tasks');
 
     // If user is not admin, only show projects they own or are members of
@@ -66,6 +93,12 @@ export class ProjectsService {
         '(project.ownerId = :userId OR members.id = :userId)',
         { userId },
       );
+    }
+
+    if (workspaceId) {
+      queryBuilder.andWhere('project.workspaceId = :workspaceId', {
+        workspaceId,
+      });
     }
 
     return await queryBuilder.getMany();
@@ -80,6 +113,7 @@ export class ProjectsService {
       .createQueryBuilder('project')
       .leftJoinAndSelect('project.owner', 'owner')
       .leftJoinAndSelect('project.members', 'members')
+      .leftJoinAndSelect('project.workspace', 'workspace')
       .loadRelationCountAndMap('project.taskCount', 'project.tasks')
       .where('project.id = :id', { id });
 
@@ -116,7 +150,37 @@ export class ProjectsService {
       throw new ForbiddenException('You can only update your own projects');
     }
 
-    await this.projectRepository.update(id, updateProjectDto);
+    const updatePayload = {
+      ...updateProjectDto,
+    } as unknown as Partial<Project>;
+
+    if (updateProjectDto.workspaceId) {
+      const targetWorkspace = await this.workspaceRepository.findOne({
+        where: { id: updateProjectDto.workspaceId },
+        relations: ['members'],
+      });
+
+      if (!targetWorkspace) {
+        throw new NotFoundException('Workspace not found');
+      }
+
+      const canUseWorkspace =
+        userRole === UserRole.ADMIN ||
+        targetWorkspace.ownerId === userId ||
+        targetWorkspace.members?.some((member) => member.id === userId);
+
+      if (!canUseWorkspace) {
+        throw new ForbiddenException(
+          'You must be a member of the workspace to move this project',
+        );
+      }
+
+      updatePayload.workspaceId = targetWorkspace.id;
+    } else {
+      delete (updatePayload as Record<string, unknown>).workspaceId;
+    }
+
+    await this.projectRepository.update(id, updatePayload);
     return await this.findOne(id, userId, userRole);
   }
 

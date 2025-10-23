@@ -15,6 +15,10 @@ export class CreateProjectDto {
   @IsString()
   name: string;
 
+  @ApiProperty({ example: 'workspace-uuid-here' })
+  @IsUUID()
+  workspaceId: string;
+
   @ApiPropertyOptional({ example: 'Complete redesign of company website' })
   @IsOptional()
   @IsString()
@@ -110,6 +114,11 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   color?: string;
+
+  @ApiPropertyOptional({ example: 'workspace-uuid-here' })
+  @IsOptional()
+  @IsUUID()
+  workspaceId?: string;
 }
 
 export class AddProjectMembersDto {
@@ -149,6 +158,15 @@ export class ProjectResponseDto {
 
   @ApiPropertyOptional()
   color?: string;
+
+  @ApiPropertyOptional()
+  workspaceId?: string;
+
+  @ApiPropertyOptional()
+  workspace?: {
+    id: string;
+    name: string;
+  };
 
   @ApiProperty()
   createdAt: Date;

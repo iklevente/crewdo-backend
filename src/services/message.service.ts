@@ -34,6 +34,8 @@ export class MessageService {
   private channelRepository: Repository<Channel>;
   private messageReactionRepository: Repository<MessageReaction>;
   private attachmentRepository: Repository<Attachment>;
+  private hasEnsuredReactionConstraint = false;
+  private ensuringReactionConstraint: Promise<void> | null = null;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -423,9 +425,11 @@ export class MessageService {
     messageReactionDto: MessageReactionDto,
     userId: string,
   ): Promise<void> {
+    await this.ensureReactionUniquenessConstraint();
+
     const message = await this.messageRepository.findOne({
       where: { id: messageReactionDto.messageId },
-      relations: ['channel', 'channel.members', 'reactions', 'reactions.user'],
+      relations: ['channel', 'channel.members'],
     });
 
     if (!message) {
@@ -440,28 +444,25 @@ export class MessageService {
       throw new ForbiddenException('Access denied');
     }
 
-    // Check if user already reacted with this emoji
-    const existingReaction = message.reactions.find(
-      (reaction) =>
-        reaction.emoji === messageReactionDto.emoji &&
-        reaction.user.id === userId,
-    );
+    await this.dataSource.transaction(async (manager) => {
+      const reactionRepository = manager.getRepository(MessageReaction);
 
-    if (existingReaction) {
-      // Remove reaction (toggle)
-      await this.messageReactionRepository.remove(existingReaction);
-    } else {
-      // Add reaction
-      const user = await this.userRepository.findOne({ where: { id: userId } });
-      if (!user) throw new NotFoundException('User not found');
-
-      const reaction = this.messageReactionRepository.create({
+      const deleteResult = await reactionRepository.delete({
+        messageId: messageReactionDto.messageId,
+        userId,
         emoji: messageReactionDto.emoji,
-        user,
-        message,
       });
-      await this.messageReactionRepository.save(reaction);
-    }
+
+      if (deleteResult.affected && deleteResult.affected > 0) {
+        return;
+      }
+
+      await reactionRepository.insert({
+        emoji: messageReactionDto.emoji,
+        messageId: messageReactionDto.messageId,
+        userId,
+      });
+    });
   }
 
   async search(
@@ -710,24 +711,29 @@ export class MessageService {
       userReacted: boolean;
     }
 
-    const reactionGroups: ReactionGroup[] =
-      message.reactions?.reduce((groups: ReactionGroup[], reaction) => {
-        const existing = groups.find((g) => g.emoji === reaction.emoji);
-        if (existing) {
-          existing.count++;
-          existing.users.push({
-            id: reaction.user.id,
-            firstName: reaction.user.firstName,
-            lastName: reaction.user.lastName,
-          });
-          if (reaction.user.id === currentUserId) {
-            existing.userReacted = true;
+    const reactionGroupsMap =
+      message.reactions?.reduce(
+        (groups, reaction) => {
+          const existing = groups.get(reaction.emoji);
+          if (existing) {
+            if (!existing.userIds.has(reaction.user.id)) {
+              existing.userIds.add(reaction.user.id);
+              existing.users.push({
+                id: reaction.user.id,
+                firstName: reaction.user.firstName,
+                lastName: reaction.user.lastName,
+              });
+            }
+            if (reaction.user.id === currentUserId) {
+              existing.userReacted = true;
+            }
+            return groups;
           }
-        } else {
-          groups.push({
+
+          groups.set(reaction.emoji, {
             id: reaction.id,
             emoji: reaction.emoji,
-            count: 1,
+            count: 0,
             users: [
               {
                 id: reaction.user.id,
@@ -736,10 +742,32 @@ export class MessageService {
               },
             ],
             userReacted: reaction.user.id === currentUserId,
+            userIds: new Set<string>([reaction.user.id]),
           });
+
+          return groups;
+        },
+        new Map<
+          string,
+          ReactionGroup & {
+            userIds: Set<string>;
+          }
+        >(),
+      ) ||
+      new Map<
+        string,
+        ReactionGroup & {
+          userIds: Set<string>;
         }
-        return groups;
-      }, []) || [];
+      >();
+
+    const reactionGroups: ReactionGroup[] = Array.from(
+      reactionGroupsMap.values(),
+    ).map(({ users, ...group }) => ({
+      ...group,
+      users,
+      count: users.length,
+    }));
 
     const mentionedUsers = await this.resolveMentionedUsers(message);
     const { threadReplies, threadCount } =
@@ -877,5 +905,172 @@ export class MessageService {
       threadReplies: formattedReplies,
       threadCount,
     };
+  }
+
+  private async ensureReactionUniquenessConstraint(): Promise<void> {
+    if (this.hasEnsuredReactionConstraint) {
+      return;
+    }
+
+    if (this.ensuringReactionConstraint) {
+      await this.ensuringReactionConstraint;
+      return;
+    }
+
+    const normalize = (value: string | null): string[] => {
+      if (!value) {
+        return [];
+      }
+      return value
+        .split(',')
+        .map((column) => column.trim())
+        .filter((column) => column.length > 0)
+        .sort();
+    };
+
+    const driverType = this.dataSource.options.type;
+    const desiredColumns = ['emoji', 'messageId', 'userId'];
+
+    const isDesiredConstraint = (columns: string[]): boolean => {
+      if (columns.length !== desiredColumns.length) {
+        return false;
+      }
+      return desiredColumns.every((column) => columns.includes(column));
+    };
+
+    const isLegacyConstraint = (columns: string[]): boolean => {
+      if (columns.length !== 2) {
+        return false;
+      }
+      return columns.includes('messageId') && columns.includes('userId');
+    };
+
+    this.ensuringReactionConstraint = (async () => {
+      let wasSuccessful = false;
+
+      try {
+        if (driverType === 'mssql') {
+          const fetchConstraints = async (): Promise<
+            Array<{
+              constraintName: string;
+              columns: string | null;
+            }>
+          > =>
+            this.dataSource.query(
+              `
+              SELECT 
+                kc.name AS constraintName,
+                STRING_AGG(c.name, ',') WITHIN GROUP (ORDER BY ic.key_ordinal) AS columns
+              FROM sys.key_constraints kc
+              INNER JOIN sys.tables t ON kc.parent_object_id = t.object_id
+              INNER JOIN sys.index_columns ic ON kc.parent_object_id = ic.object_id AND kc.unique_index_id = ic.index_id
+              INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+              WHERE t.name = 'message_reactions' AND kc.type = 'UQ'
+              GROUP BY kc.name;
+              `,
+            );
+
+          let constraints = await fetchConstraints();
+
+          const legacyConstraints = constraints.filter(({ columns }) =>
+            isLegacyConstraint(normalize(columns)),
+          );
+
+          for (const { constraintName } of legacyConstraints) {
+            await this.dataSource.query(
+              `ALTER TABLE message_reactions DROP CONSTRAINT [${constraintName}]`,
+            );
+          }
+
+          if (legacyConstraints.length > 0) {
+            constraints = (await fetchConstraints()) as Array<{
+              constraintName: string;
+              columns: string | null;
+            }>;
+          }
+
+          const hasDesired = constraints.some(({ columns }) =>
+            isDesiredConstraint(normalize(columns)),
+          );
+
+          if (!hasDesired) {
+            await this.dataSource.query(`
+              IF NOT EXISTS (
+                SELECT 1
+                FROM sys.key_constraints kc
+                INNER JOIN sys.tables t ON kc.parent_object_id = t.object_id
+                WHERE kc.name = 'UQ_message_reactions_message_user_emoji'
+                  AND t.name = 'message_reactions'
+              )
+              BEGIN
+                ALTER TABLE message_reactions
+                ADD CONSTRAINT UQ_message_reactions_message_user_emoji UNIQUE (messageId, userId, emoji);
+              END
+            `);
+          }
+        } else if (driverType === 'postgres') {
+          const fetchConstraints = async (): Promise<
+            Array<{
+              constraintName: string;
+              columns: string | null;
+            }>
+          > =>
+            this.dataSource.query(
+              `
+              SELECT
+                tc.constraint_name AS "constraintName",
+                STRING_AGG(kcu.column_name, ',' ORDER BY kcu.ordinal_position) AS "columns"
+              FROM information_schema.table_constraints tc
+              INNER JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_name = kcu.table_name
+              WHERE tc.table_name = 'message_reactions' AND tc.constraint_type = 'UNIQUE'
+              GROUP BY tc.constraint_name;
+              `,
+            );
+
+          let constraints = await fetchConstraints();
+
+          const legacyConstraints = constraints.filter(({ columns }) =>
+            isLegacyConstraint(normalize(columns)),
+          );
+
+          for (const { constraintName } of legacyConstraints) {
+            await this.dataSource.query(
+              `ALTER TABLE "message_reactions" DROP CONSTRAINT "${constraintName}"`,
+            );
+          }
+
+          if (legacyConstraints.length > 0) {
+            constraints = (await fetchConstraints()) as Array<{
+              constraintName: string;
+              columns: string | null;
+            }>;
+          }
+
+          const hasDesired = constraints.some(({ columns }) =>
+            isDesiredConstraint(normalize(columns)),
+          );
+
+          if (!hasDesired) {
+            await this.dataSource.query(
+              `ALTER TABLE "message_reactions" ADD CONSTRAINT "UQ_message_reactions_message_user_emoji" UNIQUE ("messageId", "userId", "emoji")`,
+            );
+          }
+        }
+
+        wasSuccessful = true;
+      } catch (error) {
+        console.warn(
+          'Failed to ensure message reaction uniqueness constraint is up to date:',
+          error,
+        );
+      } finally {
+        this.hasEnsuredReactionConstraint = wasSuccessful;
+        this.ensuringReactionConstraint = null;
+      }
+    })();
+
+    await this.ensuringReactionConstraint;
   }
 }

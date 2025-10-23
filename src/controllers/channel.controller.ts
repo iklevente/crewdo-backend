@@ -157,7 +157,6 @@ export class ChannelController {
   @ApiParam({ name: 'id', description: 'Channel ID' })
   @ApiResponse({ status: 204, description: 'Channel deleted successfully' })
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(UserRole.ADMIN, UserRole.PROJECT_MANAGER)
   async remove(
     @Param('id') id: string,
     @Request() req: AuthenticatedRequest,

@@ -132,36 +132,35 @@ export class ChannelService {
       throw new BadRequestException('Some users not found');
     }
 
-    // Check if DM already exists
-    const existingDm = await this.channelRepository
-      .createQueryBuilder('channel')
-      .leftJoinAndSelect('channel.members', 'members')
-      .where('channel.type IN (:...types)', {
-        types: [ChannelType.DM, ChannelType.GROUP_DM],
-      })
-      .andWhere((qb) => {
-        const subQuery = qb
-          .subQuery()
-          .select('1')
-          .from('channel_members', 'cm')
-          .where('cm.channelId = channel.id')
-          .andWhere('cm.userId IN (:...userIds)', { userIds: allUserIds })
-          .groupBy('cm.channelId')
-          .having('COUNT(cm.userId) = :memberCount', {
-            memberCount: allUserIds.length,
-          })
-          .getQuery();
-        return `EXISTS ${subQuery}`;
-      })
-      .getOne();
+    const participantCount = allUserIds.length;
+    const channelType =
+      participantCount === 2 ? ChannelType.DM : ChannelType.GROUP_DM;
+
+    let existingDm: Channel | null = null;
+    if (channelType === ChannelType.DM) {
+      const candidateChannels = await this.channelRepository
+        .createQueryBuilder('channel')
+        .leftJoinAndSelect('channel.members', 'members')
+        .where('channel.type = :type', { type: ChannelType.DM })
+        .andWhere('channel.isArchived = :isArchived', { isArchived: false })
+        .andWhere('members.id IN (:...userIds)', { userIds: allUserIds })
+        .getMany();
+
+      existingDm =
+        candidateChannels.find((channel) => {
+          const memberIds = channel.members.map((member) => member.id);
+          if (memberIds.length !== participantCount) {
+            return false;
+          }
+          return memberIds.every((memberId) => allUserIds.includes(memberId));
+        }) ?? null;
+    }
 
     if (existingDm) {
       return this.formatChannelResponse(existingDm, userId);
     }
 
     // Create new DM
-    const channelType =
-      allUserIds.length === 2 ? ChannelType.DM : ChannelType.GROUP_DM;
     const describeUser = (user: User | undefined): string => {
       if (!user) {
         return 'Unknown user';
@@ -336,10 +335,15 @@ export class ChannelService {
     const isCreator = channel.creatorId === userId;
     const isAdmin = userRole === UserRole.ADMIN;
 
+    const isMember = channel.members.some((member) => member.id === userId);
+    const isGroupConversation = channel.type === ChannelType.GROUP_DM;
+
     if (!isCreator && !isAdmin) {
-      throw new ForbiddenException(
-        'Only channel creator or admin can update channel',
-      );
+      if (!isGroupConversation || !isMember) {
+        throw new ForbiddenException(
+          'Only channel creator or admin can update channel',
+        );
+      }
     }
 
     // Update fields
@@ -352,11 +356,20 @@ export class ChannelService {
     if (updateChannelDto.topic !== undefined) {
       channel.topic = updateChannelDto.topic;
     }
-    if (updateChannelDto.visibility !== undefined) {
-      channel.visibility = updateChannelDto.visibility;
-    }
-    if (updateChannelDto.isArchived !== undefined) {
-      channel.isArchived = updateChannelDto.isArchived;
+    if (isCreator || isAdmin) {
+      if (updateChannelDto.visibility !== undefined) {
+        channel.visibility = updateChannelDto.visibility;
+      }
+      if (updateChannelDto.isArchived !== undefined) {
+        channel.isArchived = updateChannelDto.isArchived;
+      }
+    } else if (
+      updateChannelDto.visibility !== undefined ||
+      updateChannelDto.isArchived !== undefined
+    ) {
+      throw new ForbiddenException(
+        'Only channel creator or admin can change visibility or archive status',
+      );
     }
 
     const updatedChannel = await this.channelRepository.save(channel);
@@ -373,21 +386,14 @@ export class ChannelService {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check permissions - only creator can delete
     const isCreator = channel.creatorId === userId;
     const isAdmin = userRole === UserRole.ADMIN;
+    const isMember = channel.members.some((member) => member.id === userId);
 
-    if (!isCreator && !isAdmin) {
-      throw new ForbiddenException(
-        'Only channel creator or admin can delete channel',
-      );
-    }
-
-    // For DM channels, just remove the user instead of deleting
-    if (
-      channel.type === ChannelType.DM ||
-      channel.type === ChannelType.GROUP_DM
-    ) {
+    if (channel.type === ChannelType.DM) {
+      if (!isMember && !isAdmin) {
+        throw new ForbiddenException('Access denied');
+      }
       channel.members = channel.members.filter(
         (member) => member.id !== userId,
       );
@@ -395,7 +401,30 @@ export class ChannelService {
       return;
     }
 
-    // Soft delete - archive instead of hard delete
+    if (channel.type === ChannelType.GROUP_DM) {
+      if (isCreator || isAdmin) {
+        channel.isArchived = true;
+        await this.channelRepository.save(channel);
+        return;
+      }
+
+      if (!isMember) {
+        throw new ForbiddenException('Access denied');
+      }
+
+      channel.members = channel.members.filter(
+        (member) => member.id !== userId,
+      );
+      await this.channelRepository.save(channel);
+      return;
+    }
+
+    if (!isCreator && !isAdmin) {
+      throw new ForbiddenException(
+        'Only channel creator or admin can delete channel',
+      );
+    }
+
     channel.isArchived = true;
     await this.channelRepository.save(channel);
   }
