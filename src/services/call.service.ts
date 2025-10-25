@@ -5,6 +5,8 @@ import {
   BadRequestException,
   Inject,
   Logger,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { Repository, DataSource, In } from 'typeorm';
 import {
@@ -25,6 +27,7 @@ import {
 } from '../dto/call.dto';
 import { NotificationService } from './notification.service';
 import { LivekitService } from './livekit.service';
+import { ChatGateway } from '../websocket/chat.gateway';
 
 interface CallSettings {
   description?: string;
@@ -34,22 +37,44 @@ interface CallSettings {
 }
 
 @Injectable()
-export class CallService {
+export class CallService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CallService.name);
   private callRepository: Repository<Call>;
   private callParticipantRepository: Repository<CallParticipant>;
   private userRepository: Repository<User>;
+  private scheduledSweepHandle: NodeJS.Timeout | null = null;
+  private isScheduledSweepRunning = false;
+
+  private static readonly SCHEDULE_SWEEP_INTERVAL_MS = 15_000;
 
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
     private readonly notificationService: NotificationService,
     private readonly livekitService: LivekitService,
+    private readonly chatGateway: ChatGateway,
   ) {
     this.callRepository = this.dataSource.getRepository(Call);
     this.callParticipantRepository =
       this.dataSource.getRepository(CallParticipant);
     this.userRepository = this.dataSource.getRepository(User);
+  }
+
+  onModuleInit() {
+    if (!this.scheduledSweepHandle) {
+      this.scheduledSweepHandle = setInterval(() => {
+        void this.reconcileScheduledCalls();
+      }, CallService.SCHEDULE_SWEEP_INTERVAL_MS);
+    }
+
+    void this.reconcileScheduledCalls();
+  }
+
+  onModuleDestroy() {
+    if (this.scheduledSweepHandle) {
+      clearInterval(this.scheduledSweepHandle);
+      this.scheduledSweepHandle = null;
+    }
   }
 
   private parseCallSettings(settings?: string | null): CallSettings {
@@ -134,7 +159,108 @@ export class CallService {
     return true;
   }
 
+  private collectCallRecipients(call: Call): Set<string> {
+    const recipients = new Set<string>();
+
+    if (call.initiator?.id) {
+      recipients.add(call.initiator.id);
+    }
+
+    call.participants?.forEach((participant) => {
+      const userId = participant.user?.id;
+      if (userId) {
+        recipients.add(userId);
+      }
+    });
+
+    call.invitedUsers?.forEach((user) => {
+      if (user?.id) {
+        recipients.add(user.id);
+      }
+    });
+
+    return recipients;
+  }
+
+  private async getCallSnapshot(callId: string): Promise<Call | null> {
+    return this.callRepository.findOne({
+      where: { id: callId },
+      relations: [
+        'initiator',
+        'participants',
+        'participants.user',
+        'invitedUsers',
+      ],
+    });
+  }
+
+  private async ensureCallRelations(call: Call): Promise<Call> {
+    const hasParticipants = Array.isArray(call.participants)
+      ? call.participants.every((participant) => Boolean(participant.user))
+      : false;
+    const hasInvitedUsers = Array.isArray(call.invitedUsers);
+
+    if (call.initiator && hasParticipants && hasInvitedUsers) {
+      return call;
+    }
+
+    const snapshot = await this.getCallSnapshot(call.id);
+    return snapshot ?? call;
+  }
+
+  private async emitCallUpdate(call: Call): Promise<void> {
+    try {
+      const hydratedCall = await this.ensureCallRelations(call);
+      const payload = this.formatCallResponse(hydratedCall);
+      const recipients = this.collectCallRecipients(hydratedCall);
+
+      if (recipients.size > 0) {
+        this.chatGateway.publishCallUpdate(payload, recipients);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error ?? 'unknown error');
+      this.logger.warn(`Failed to emit call update: ${message}`);
+    }
+  }
+
+  private async reconcileScheduledCalls(): Promise<void> {
+    if (this.isScheduledSweepRunning) {
+      return;
+    }
+
+    this.isScheduledSweepRunning = true;
+
+    try {
+      const candidates = await this.callRepository
+        .createQueryBuilder('call')
+        .leftJoinAndSelect('call.initiator', 'initiator')
+        .leftJoinAndSelect('call.participants', 'participants')
+        .leftJoinAndSelect('participants.user', 'participantUser')
+        .leftJoinAndSelect('call.invitedUsers', 'invitedUsers')
+        .where('call.status IN (:...statuses)', {
+          statuses: [CallStatus.SCHEDULED, CallStatus.ACTIVE],
+        })
+        .getMany();
+
+      for (const call of candidates) {
+        await this.applyScheduledTransitions(call);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error ?? 'unknown error');
+      this.logger.warn(`Scheduled call reconciliation failed: ${message}`);
+    } finally {
+      this.isScheduledSweepRunning = false;
+    }
+  }
+
   private async applyScheduledTransitions(call: Call): Promise<Call> {
+    const originalStatus = call.status;
     const settings = this.parseCallSettings(call.settings);
     const now = new Date();
     let shouldPersistCall = false;
@@ -185,6 +311,10 @@ export class CallService {
 
     if (shouldPersistCall) {
       await this.callRepository.save(call);
+
+      if (call.status !== originalStatus) {
+        await this.emitCallUpdate(call);
+      }
     }
 
     return call;
@@ -267,6 +397,7 @@ export class CallService {
     await this.ensureLivekitRoom(callWithSettings);
 
     const hydratedCall = await this.getCallWithRelations(callWithSettings.id);
+    await this.emitCallUpdate(hydratedCall);
     return this.formatCallResponse(hydratedCall);
   }
 
@@ -337,6 +468,7 @@ export class CallService {
     await this.ensureLivekitRoom(callWithSettings);
 
     const hydratedCall = await this.getCallWithRelations(callWithSettings.id);
+    await this.emitCallUpdate(hydratedCall);
     return this.formatCallResponse(hydratedCall);
   }
 
@@ -413,6 +545,11 @@ export class CallService {
     await this.callParticipantRepository.save(participant);
 
     await this.ensureLivekitRoom(call);
+
+    const snapshot = await this.getCallSnapshot(call.id);
+    if (snapshot) {
+      await this.emitCallUpdate(snapshot);
+    }
   }
 
   async leaveCall(callId: string, userId: string): Promise<void> {
@@ -442,6 +579,11 @@ export class CallService {
       call.status = CallStatus.ENDED;
       call.endedAt = new Date();
       await this.callRepository.save(call);
+    }
+
+    const snapshot = await this.getCallSnapshot(callId);
+    if (snapshot) {
+      await this.emitCallUpdate(snapshot);
     }
   }
 
@@ -483,13 +625,15 @@ export class CallService {
     }
 
     await this.callParticipantRepository.save(participant);
+
+    const snapshot = await this.getCallSnapshot(callId);
+    if (snapshot) {
+      await this.emitCallUpdate(snapshot);
+    }
   }
 
   private async getCallWithRelations(callId: string): Promise<Call> {
-    const call = await this.callRepository.findOne({
-      where: { id: callId },
-      relations: ['initiator', 'participants', 'participants.user'],
-    });
+    const call = await this.getCallSnapshot(callId);
 
     if (!call) {
       throw new NotFoundException('Call not found');
@@ -590,6 +734,11 @@ export class CallService {
       participant.status = ParticipantStatus.LEFT;
       participant.leftAt = new Date();
       await this.callParticipantRepository.save(participant);
+    }
+
+    const snapshot = await this.getCallSnapshot(callId);
+    if (snapshot) {
+      await this.emitCallUpdate(snapshot);
     }
   }
 

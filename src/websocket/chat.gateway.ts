@@ -17,6 +17,7 @@ import { CreateMessageDto } from '../dto/message.dto';
 import { PresenceResponseDto } from '../dto/presence.dto';
 import { PresenceService } from '../services/presence.service';
 import { PresenceStatus, UserRole } from '../entities';
+import { CallResponseDto } from '../dto/call.dto';
 
 interface JwtPayload {
   email: string;
@@ -575,6 +576,19 @@ export class ChatGateway
         this.server.to(socketId).emit(event, data);
       });
     }
+  }
+
+  public publishCallUpdate(
+    payload: CallResponseDto,
+    recipients: Iterable<string>,
+  ): void {
+    const uniqueRecipients = new Set(
+      Array.from(recipients || []).filter((userId) => Boolean(userId)),
+    );
+
+    uniqueRecipients.forEach((userId) => {
+      this.sendToUser(userId, 'call_updated', payload);
+    });
   }
 
   private resolveUserRole(client: AuthenticatedSocket): UserRole {
