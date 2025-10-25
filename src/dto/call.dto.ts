@@ -8,19 +8,9 @@ import {
   IsDateString,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ParticipantStatus, CallType, CallStatus } from '../entities';
 
-export enum CallType {
-  VOICE = 'voice',
-  VIDEO = 'video',
-  SCREEN_SHARE = 'screen_share',
-}
-
-export enum CallStatus {
-  SCHEDULED = 'scheduled',
-  ACTIVE = 'active',
-  ENDED = 'ended',
-  CANCELLED = 'cancelled',
-}
+export { CallStatus };
 
 export class StartCallDto {
   @ApiProperty({ enum: CallType, example: CallType.VOICE })
@@ -31,6 +21,16 @@ export class StartCallDto {
   @IsOptional()
   @IsString()
   title?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  withVideo?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  withAudio?: boolean;
 
   @ApiPropertyOptional({ example: ['user-id-1', 'user-id-2'] })
   @IsOptional()
@@ -141,6 +141,9 @@ export class CallResponseDto {
   @ApiPropertyOptional()
   scheduledEndTime?: Date;
 
+  @ApiPropertyOptional()
+  roomName?: string;
+
   @ApiProperty()
   initiator: {
     id: string;
@@ -158,7 +161,8 @@ export class CallResponseDto {
       lastName: string;
       avatar?: string;
     };
-    joinedAt: Date;
+    status: ParticipantStatus;
+    joinedAt?: Date;
     leftAt?: Date;
     isMuted: boolean;
     isVideoEnabled: boolean;
@@ -172,4 +176,24 @@ export class CallResponseDto {
 
   @ApiPropertyOptional()
   maxParticipants?: number;
+}
+
+export class CallSessionResponseDto {
+  @ApiProperty()
+  token: string;
+
+  @ApiProperty()
+  url: string;
+
+  @ApiProperty()
+  roomName: string;
+
+  @ApiProperty()
+  identity: string;
+
+  @ApiProperty()
+  isHost: boolean;
+
+  @ApiPropertyOptional()
+  participantId?: string | null;
 }

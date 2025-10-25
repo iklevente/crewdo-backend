@@ -5,7 +5,7 @@ import {
   BadRequestException,
   Inject,
 } from '@nestjs/common';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import {
   Message,
   User,
@@ -13,9 +13,8 @@ import {
   MessageReaction,
   Attachment,
   AttachmentType,
-  ChannelVisibility,
-  UserRole,
 } from '../entities/index';
+import { MessageType } from '../entities/message.entity';
 import {
   CreateMessageDto,
   UpdateMessageDto,
@@ -34,8 +33,6 @@ export class MessageService {
   private channelRepository: Repository<Channel>;
   private messageReactionRepository: Repository<MessageReaction>;
   private attachmentRepository: Repository<Attachment>;
-  private hasEnsuredReactionConstraint = false;
-  private ensuringReactionConstraint: Promise<void> | null = null;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -82,7 +79,7 @@ export class MessageService {
     if (createMessageDto.parentMessageId) {
       replyToMessage = await this.messageRepository.findOne({
         where: { id: createMessageDto.parentMessageId },
-        relations: ['channel'],
+        relations: ['channel', 'author'],
       });
 
       if (
@@ -117,13 +114,21 @@ export class MessageService {
 
     const message = this.messageRepository.create({
       content: createMessageDto.content,
+      type: createMessageDto.isSystemMessage
+        ? MessageType.SYSTEM
+        : MessageType.TEXT,
       author,
       channel,
       replyTo: replyToMessage || undefined,
       mentions: JSON.stringify(mentions),
+      metadata: createMessageDto.embedData
+        ? JSON.stringify(createMessageDto.embedData)
+        : null,
     });
 
-    const savedMessage = await this.messageRepository.save(message);
+    const savedMessage = (await this.messageRepository.save(
+      message,
+    )) as unknown as Message;
 
     // Handle attachments if provided
     if (
@@ -166,7 +171,11 @@ export class MessageService {
       );
 
       for (const member of otherMembers) {
-        if (replyToMessage && replyToMessage.author.id === member.id) {
+        if (
+          replyToMessage &&
+          replyToMessage.author &&
+          replyToMessage.author.id === member.id
+        ) {
           // This is a reply to this member's message
           await this.notificationService.createMessageReplyNotification(
             savedMessage.id,
@@ -197,7 +206,7 @@ export class MessageService {
       relations: ['author', 'channel', 'attachments'],
     });
 
-    return await this.formatMessageResponse(
+    return this.formatMessageResponse(
       messageWithAttachments || savedMessage,
       authorId,
     );
@@ -221,14 +230,9 @@ export class MessageService {
       throw new NotFoundException('Channel not found');
     }
 
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    const userRole = user?.role ?? UserRole.TEAM_MEMBER;
-
+    // Check access
     const isMember = channel.members.some((member) => member.id === userId);
-    const isAdmin = userRole === UserRole.ADMIN;
-    const isPublicChannel = channel.visibility === ChannelVisibility.PUBLIC;
-
-    if (!isMember && !isAdmin && !isPublicChannel) {
+    if (!isMember) {
       throw new ForbiddenException('Access denied to this channel');
     }
 
@@ -280,12 +284,10 @@ export class MessageService {
         ? messages[messages.length - 1].id
         : undefined;
 
-    const formattedMessages = await Promise.all(
-      messages.map((message) => this.formatMessageResponse(message, userId)),
-    );
-
     return {
-      messages: formattedMessages,
+      messages: messages.map((message) =>
+        this.formatMessageResponse(message, userId),
+      ),
       hasMore,
       nextCursor,
     };
@@ -327,9 +329,7 @@ export class MessageService {
       order: { createdAt: 'ASC' },
     });
 
-    return await Promise.all(
-      replies.map((reply) => this.formatMessageResponse(reply, userId)),
-    );
+    return replies.map((reply) => this.formatMessageResponse(reply, userId));
   }
 
   async update(
@@ -392,7 +392,7 @@ export class MessageService {
     }
 
     const updatedMessage = await this.messageRepository.save(message);
-    return await this.formatMessageResponse(updatedMessage, userId);
+    return this.formatMessageResponse(updatedMessage, userId);
   }
 
   async remove(id: string, userId: string): Promise<void> {
@@ -425,11 +425,9 @@ export class MessageService {
     messageReactionDto: MessageReactionDto,
     userId: string,
   ): Promise<void> {
-    await this.ensureReactionUniquenessConstraint();
-
     const message = await this.messageRepository.findOne({
       where: { id: messageReactionDto.messageId },
-      relations: ['channel', 'channel.members'],
+      relations: ['channel', 'channel.members', 'reactions', 'reactions.user'],
     });
 
     if (!message) {
@@ -444,25 +442,28 @@ export class MessageService {
       throw new ForbiddenException('Access denied');
     }
 
-    await this.dataSource.transaction(async (manager) => {
-      const reactionRepository = manager.getRepository(MessageReaction);
+    // Check if user already reacted with this emoji
+    const existingReaction = message.reactions.find(
+      (reaction) =>
+        reaction.emoji === messageReactionDto.emoji &&
+        reaction.user.id === userId,
+    );
 
-      const deleteResult = await reactionRepository.delete({
-        messageId: messageReactionDto.messageId,
-        userId,
+    if (existingReaction) {
+      // Remove reaction (toggle)
+      await this.messageReactionRepository.remove(existingReaction);
+    } else {
+      // Add reaction
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+      if (!user) throw new NotFoundException('User not found');
+
+      const reaction = this.messageReactionRepository.create({
         emoji: messageReactionDto.emoji,
+        user,
+        message,
       });
-
-      if (deleteResult.affected && deleteResult.affected > 0) {
-        return;
-      }
-
-      await reactionRepository.insert({
-        emoji: messageReactionDto.emoji,
-        messageId: messageReactionDto.messageId,
-        userId,
-      });
-    });
+      await this.messageReactionRepository.save(reaction);
+    }
   }
 
   async search(
@@ -544,8 +545,8 @@ export class MessageService {
       .take(100) // Limit search results
       .getMany();
 
-    return await Promise.all(
-      messages.map((message) => this.formatMessageResponse(message, userId)),
+    return messages.map((message) =>
+      this.formatMessageResponse(message, userId),
     );
   }
 
@@ -576,7 +577,7 @@ export class MessageService {
       throw new ForbiddenException('Access denied to this message');
     }
 
-    return await this.formatMessageResponse(message, userId);
+    return this.formatMessageResponse(message, userId);
   }
 
   async getPinnedMessages(
@@ -614,10 +615,8 @@ export class MessageService {
       order: { createdAt: 'DESC' },
     });
 
-    return await Promise.all(
-      pinnedMessages.map((message) =>
-        this.formatMessageResponse(message, userId),
-      ),
+    return pinnedMessages.map((message) =>
+      this.formatMessageResponse(message, userId),
     );
   }
 
@@ -698,10 +697,10 @@ export class MessageService {
     return AttachmentType.OTHER;
   }
 
-  private async formatMessageResponse(
+  private formatMessageResponse(
     message: Message,
     currentUserId: string,
-  ): Promise<MessageResponseDto> {
+  ): MessageResponseDto {
     // Group reactions by emoji
     interface ReactionGroup {
       id: string;
@@ -711,29 +710,24 @@ export class MessageService {
       userReacted: boolean;
     }
 
-    const reactionGroupsMap =
-      message.reactions?.reduce(
-        (groups, reaction) => {
-          const existing = groups.get(reaction.emoji);
-          if (existing) {
-            if (!existing.userIds.has(reaction.user.id)) {
-              existing.userIds.add(reaction.user.id);
-              existing.users.push({
-                id: reaction.user.id,
-                firstName: reaction.user.firstName,
-                lastName: reaction.user.lastName,
-              });
-            }
-            if (reaction.user.id === currentUserId) {
-              existing.userReacted = true;
-            }
-            return groups;
+    const reactionGroups: ReactionGroup[] =
+      message.reactions?.reduce((groups: ReactionGroup[], reaction) => {
+        const existing = groups.find((g) => g.emoji === reaction.emoji);
+        if (existing) {
+          existing.count++;
+          existing.users.push({
+            id: reaction.user.id,
+            firstName: reaction.user.firstName,
+            lastName: reaction.user.lastName,
+          });
+          if (reaction.user.id === currentUserId) {
+            existing.userReacted = true;
           }
-
-          groups.set(reaction.emoji, {
+        } else {
+          groups.push({
             id: reaction.id,
             emoji: reaction.emoji,
-            count: 0,
+            count: 1,
             users: [
               {
                 id: reaction.user.id,
@@ -742,36 +736,10 @@ export class MessageService {
               },
             ],
             userReacted: reaction.user.id === currentUserId,
-            userIds: new Set<string>([reaction.user.id]),
           });
-
-          return groups;
-        },
-        new Map<
-          string,
-          ReactionGroup & {
-            userIds: Set<string>;
-          }
-        >(),
-      ) ||
-      new Map<
-        string,
-        ReactionGroup & {
-          userIds: Set<string>;
         }
-      >();
-
-    const reactionGroups: ReactionGroup[] = Array.from(
-      reactionGroupsMap.values(),
-    ).map(({ users, ...group }) => ({
-      ...group,
-      users,
-      count: users.length,
-    }));
-
-    const mentionedUsers = await this.resolveMentionedUsers(message);
-    const { threadReplies, threadCount } =
-      await this.resolveThreadMetadata(message);
+        return groups;
+      }, []) || [];
 
     return {
       id: message.id,
@@ -779,6 +747,10 @@ export class MessageService {
       isEdited: message.isEdited,
       isPinned: message.isPinned,
       isDeleted: message.isDeleted,
+      isSystemMessage: message.type === MessageType.SYSTEM,
+      embedData: message.metadata
+        ? (JSON.parse(message.metadata) as Record<string, unknown>)
+        : undefined,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
       editedAt: message.updatedAt, // Use updatedAt as editedAt approximation
@@ -813,264 +785,9 @@ export class MessageService {
           mimeType: attachment.mimeType,
         })) || [],
       reactions: reactionGroups,
-      mentionedUsers,
-      threadReplies,
-      threadCount: threadCount ?? 0,
+      mentionedUsers: [], // TODO: Load mentioned users by IDs from JSON.parse(message.mentions)
+      threadReplies: [], // TODO: Load thread replies if needed
+      threadCount: 0, // TODO: Count thread replies
     };
-  }
-
-  private async resolveMentionedUsers(
-    message: Message,
-  ): Promise<Array<{ id: string; firstName: string; lastName: string }>> {
-    if (!message.mentions) {
-      return [];
-    }
-
-    let mentionIds: string[] = [];
-    try {
-      const parsed = JSON.parse(message.mentions) as unknown;
-      if (Array.isArray(parsed)) {
-        mentionIds = parsed.filter(
-          (value): value is string => typeof value === 'string',
-        );
-      }
-    } catch (error) {
-      console.warn(
-        `Failed to parse mentions for message ${message.id}:`,
-        error,
-      );
-      return [];
-    }
-
-    if (mentionIds.length === 0) {
-      return [];
-    }
-
-    const users = await this.userRepository.find({
-      where: { id: In(mentionIds) },
-      select: ['id', 'firstName', 'lastName'],
-    });
-
-    const userMap = new Map(users.map((user) => [user.id, user]));
-    return mentionIds
-      .map((id) => userMap.get(id))
-      .filter((user): user is User => Boolean(user))
-      .map((user) => ({
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-      }));
-  }
-
-  private async resolveThreadMetadata(message: Message): Promise<{
-    threadReplies?: Array<{
-      id: string;
-      content: string;
-      author: { id: string; firstName: string; lastName: string };
-      createdAt: Date;
-    }>;
-    threadCount?: number;
-  }> {
-    if (!message.id || message.replyToId) {
-      return {};
-    }
-
-    const threadCount = await this.messageRepository.count({
-      where: { replyTo: { id: message.id }, isDeleted: false },
-    });
-
-    if (threadCount === 0) {
-      return { threadCount: 0 }; // Explicitly return zero to simplify frontend logic
-    }
-
-    const replies = await this.messageRepository.find({
-      where: { replyTo: { id: message.id }, isDeleted: false },
-      relations: ['author'],
-      order: { createdAt: 'ASC' },
-      take: 3,
-    });
-
-    const formattedReplies = replies.map((reply) => ({
-      id: reply.id,
-      content: reply.content,
-      author: {
-        id: reply.author.id,
-        firstName: reply.author.firstName,
-        lastName: reply.author.lastName,
-      },
-      createdAt: reply.createdAt,
-    }));
-
-    return {
-      threadReplies: formattedReplies,
-      threadCount,
-    };
-  }
-
-  private async ensureReactionUniquenessConstraint(): Promise<void> {
-    if (this.hasEnsuredReactionConstraint) {
-      return;
-    }
-
-    if (this.ensuringReactionConstraint) {
-      await this.ensuringReactionConstraint;
-      return;
-    }
-
-    const normalize = (value: string | null): string[] => {
-      if (!value) {
-        return [];
-      }
-      return value
-        .split(',')
-        .map((column) => column.trim())
-        .filter((column) => column.length > 0)
-        .sort();
-    };
-
-    const driverType = this.dataSource.options.type;
-    const desiredColumns = ['emoji', 'messageId', 'userId'];
-
-    const isDesiredConstraint = (columns: string[]): boolean => {
-      if (columns.length !== desiredColumns.length) {
-        return false;
-      }
-      return desiredColumns.every((column) => columns.includes(column));
-    };
-
-    const isLegacyConstraint = (columns: string[]): boolean => {
-      if (columns.length !== 2) {
-        return false;
-      }
-      return columns.includes('messageId') && columns.includes('userId');
-    };
-
-    this.ensuringReactionConstraint = (async () => {
-      let wasSuccessful = false;
-
-      try {
-        if (driverType === 'mssql') {
-          const fetchConstraints = async (): Promise<
-            Array<{
-              constraintName: string;
-              columns: string | null;
-            }>
-          > =>
-            this.dataSource.query(
-              `
-              SELECT 
-                kc.name AS constraintName,
-                STRING_AGG(c.name, ',') WITHIN GROUP (ORDER BY ic.key_ordinal) AS columns
-              FROM sys.key_constraints kc
-              INNER JOIN sys.tables t ON kc.parent_object_id = t.object_id
-              INNER JOIN sys.index_columns ic ON kc.parent_object_id = ic.object_id AND kc.unique_index_id = ic.index_id
-              INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-              WHERE t.name = 'message_reactions' AND kc.type = 'UQ'
-              GROUP BY kc.name;
-              `,
-            );
-
-          let constraints = await fetchConstraints();
-
-          const legacyConstraints = constraints.filter(({ columns }) =>
-            isLegacyConstraint(normalize(columns)),
-          );
-
-          for (const { constraintName } of legacyConstraints) {
-            await this.dataSource.query(
-              `ALTER TABLE message_reactions DROP CONSTRAINT [${constraintName}]`,
-            );
-          }
-
-          if (legacyConstraints.length > 0) {
-            constraints = (await fetchConstraints()) as Array<{
-              constraintName: string;
-              columns: string | null;
-            }>;
-          }
-
-          const hasDesired = constraints.some(({ columns }) =>
-            isDesiredConstraint(normalize(columns)),
-          );
-
-          if (!hasDesired) {
-            await this.dataSource.query(`
-              IF NOT EXISTS (
-                SELECT 1
-                FROM sys.key_constraints kc
-                INNER JOIN sys.tables t ON kc.parent_object_id = t.object_id
-                WHERE kc.name = 'UQ_message_reactions_message_user_emoji'
-                  AND t.name = 'message_reactions'
-              )
-              BEGIN
-                ALTER TABLE message_reactions
-                ADD CONSTRAINT UQ_message_reactions_message_user_emoji UNIQUE (messageId, userId, emoji);
-              END
-            `);
-          }
-        } else if (driverType === 'postgres') {
-          const fetchConstraints = async (): Promise<
-            Array<{
-              constraintName: string;
-              columns: string | null;
-            }>
-          > =>
-            this.dataSource.query(
-              `
-              SELECT
-                tc.constraint_name AS "constraintName",
-                STRING_AGG(kcu.column_name, ',' ORDER BY kcu.ordinal_position) AS "columns"
-              FROM information_schema.table_constraints tc
-              INNER JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_name = kcu.table_name
-              WHERE tc.table_name = 'message_reactions' AND tc.constraint_type = 'UNIQUE'
-              GROUP BY tc.constraint_name;
-              `,
-            );
-
-          let constraints = await fetchConstraints();
-
-          const legacyConstraints = constraints.filter(({ columns }) =>
-            isLegacyConstraint(normalize(columns)),
-          );
-
-          for (const { constraintName } of legacyConstraints) {
-            await this.dataSource.query(
-              `ALTER TABLE "message_reactions" DROP CONSTRAINT "${constraintName}"`,
-            );
-          }
-
-          if (legacyConstraints.length > 0) {
-            constraints = (await fetchConstraints()) as Array<{
-              constraintName: string;
-              columns: string | null;
-            }>;
-          }
-
-          const hasDesired = constraints.some(({ columns }) =>
-            isDesiredConstraint(normalize(columns)),
-          );
-
-          if (!hasDesired) {
-            await this.dataSource.query(
-              `ALTER TABLE "message_reactions" ADD CONSTRAINT "UQ_message_reactions_message_user_emoji" UNIQUE ("messageId", "userId", "emoji")`,
-            );
-          }
-        }
-
-        wasSuccessful = true;
-      } catch (error) {
-        console.warn(
-          'Failed to ensure message reaction uniqueness constraint is up to date:',
-          error,
-        );
-      } finally {
-        this.hasEnsuredReactionConstraint = wasSuccessful;
-        this.ensuringReactionConstraint = null;
-      }
-    })();
-
-    await this.ensuringReactionConstraint;
   }
 }

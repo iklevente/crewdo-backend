@@ -29,7 +29,8 @@
     "generate:client:simple": "./generate-clients.sh",
     "generate:openapi": "curl -o openapi.json http://localhost:3000/api/docs-json",
     "docs:serve": "npm run start:dev",
-    "docs:open": "open http://localhost:3000/api/docs"
+    "docs:open": "open http://localhost:3000/api/docs",
+    "prettier:fix": "prettier --write ."
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -48,6 +49,7 @@
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "livekit-server-sdk": "^2.14.0",
     "mssql": "^11.0.1",
     "multer": "^2.0.2",
     "passport": "^0.7.0",

@@ -13,6 +13,11 @@ import { Channel } from './channel.entity';
 import { MessageReaction } from './message-reaction.entity';
 import { Attachment } from './attachment.entity';
 
+export enum MessageType {
+  TEXT = 'TEXT',
+  SYSTEM = 'SYSTEM',
+}
+
 @Entity('messages')
 export class Message {
   @PrimaryGeneratedColumn('uuid')
@@ -20,6 +25,13 @@ export class Message {
 
   @Column({ type: 'nvarchar', length: 'MAX' })
   content: string;
+
+  @Column({
+    type: 'simple-enum',
+    enum: MessageType,
+    default: MessageType.TEXT,
+  })
+  type: MessageType;
 
   @Column({ default: false })
   isEdited: boolean;
@@ -32,6 +44,9 @@ export class Message {
 
   @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
   mentions: string; // JSON string of user IDs mentioned in the message
+
+  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
+  metadata: string | null;
 
   @Column('uuid', { nullable: true })
   replyToId: string; // For message threading/replies

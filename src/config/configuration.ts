@@ -27,4 +27,15 @@ export default () => ({
     password: process.env.EMAIL_PASSWORD || '',
     from: process.env.EMAIL_FROM || 'noreply@crewdo.com',
   },
+  livekit: {
+    apiKey: process.env.LIVEKIT_API_KEY || '',
+    apiSecret: process.env.LIVEKIT_API_SECRET || '',
+    wsUrl: process.env.LIVEKIT_WS_URL || '',
+    apiUrl: process.env.LIVEKIT_API_URL || '',
+    roomEmptyTimeout: parseInt(
+      process.env.LIVEKIT_ROOM_EMPTY_TIMEOUT || '120',
+      10,
+    ),
+    maxParticipants: parseInt(process.env.LIVEKIT_MAX_PARTICIPANTS || '24', 10),
+  },
 });

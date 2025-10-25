@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   UseGuards,
   Request,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,6 +24,8 @@ import {
   JoinCallDto,
   UpdateCallParticipantDto,
   CallResponseDto,
+  CallStatus,
+  CallSessionResponseDto,
 } from '../dto/call.dto';
 
 interface AuthenticatedRequest {
@@ -40,6 +43,20 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @ApiBearerAuth()
 export class CallController {
   constructor(private readonly callService: CallService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'List calls visible to the current user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Calls available to the authenticated user',
+    type: [CallResponseDto],
+  })
+  async findAll(
+    @Request() req: AuthenticatedRequest,
+    @Query('status') status?: CallStatus,
+  ): Promise<CallResponseDto[]> {
+    return this.callService.findAllForUser(req.user.id, status);
+  }
 
   @Post('start')
   @ApiOperation({ summary: 'Start a new call' })
@@ -100,6 +117,21 @@ export class CallController {
   ): Promise<void> {
     // Service validates user is in the call and can leave
     return this.callService.leaveCall(id, req.user.id);
+  }
+
+  @Post(':id/session')
+  @ApiOperation({ summary: 'Generate media session credentials for LiveKit' })
+  @ApiParam({ name: 'id', description: 'Call ID (UUID)' })
+  @ApiResponse({
+    status: 200,
+    description: 'LiveKit connection details',
+    type: CallSessionResponseDto,
+  })
+  async createSession(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<CallSessionResponseDto> {
+    return this.callService.createSession(id, req.user.id);
   }
 
   @Post(':id/end')

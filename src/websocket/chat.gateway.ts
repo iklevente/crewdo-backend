@@ -6,12 +6,12 @@ import {
   ConnectedSocket,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { MessageService } from '../services/message.service';
-import { MediaService } from '../services/media.service';
 import { ChannelService } from '../services/channel.service';
 import { CreateMessageDto } from '../dto/message.dto';
 import { PresenceResponseDto } from '../dto/presence.dto';
@@ -37,21 +37,44 @@ interface AuthenticatedSocket extends Socket {
   },
   namespace: '/',
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway
+  implements
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnGatewayInit,
+    OnModuleDestroy
+{
   @WebSocketServer()
   server: Server;
 
   private readonly logger = new Logger(ChatGateway.name);
   private connectedUsers = new Map<string, Set<string>>(); // userId -> Set of socketIds
   private userChannels = new Map<string, Set<string>>(); // userId -> Set of channelIds
+  private presenceSweepInterval: NodeJS.Timeout | null = null;
+  private isReconcileInProgress = false;
+
+  private static readonly PRESENCE_SWEEP_INTERVAL_MS = 60_000;
 
   constructor(
     private messageService: MessageService,
     private jwtService: JwtService,
-    private mediaService: MediaService,
     private channelService: ChannelService,
     private presenceService: PresenceService,
   ) {}
+
+  afterInit(server: Server) {
+    this.server = server;
+    this.presenceSweepInterval = setInterval(() => {
+      void this.reconcileConnections();
+    }, ChatGateway.PRESENCE_SWEEP_INTERVAL_MS);
+  }
+
+  onModuleDestroy() {
+    if (this.presenceSweepInterval) {
+      clearInterval(this.presenceSweepInterval);
+      this.presenceSweepInterval = null;
+    }
+  }
 
   async handleConnection(client: AuthenticatedSocket) {
     try {
@@ -135,6 +158,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         // If user has no more connections, mark as offline
         if (userSockets.size === 0) {
           this.connectedUsers.delete(client.userId);
+          this.userChannels.delete(client.userId);
           const presence = await this.presenceService.setAutomaticStatus(
             client.userId,
             PresenceStatus.OFFLINE,
@@ -490,6 +514,59 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return Boolean(sockets && sockets.size > 0);
   }
 
+  private async reconcileConnections() {
+    if (this.isReconcileInProgress) {
+      return;
+    }
+
+    this.isReconcileInProgress = true;
+
+    try {
+      const entries = Array.from(this.connectedUsers.entries());
+
+      for (const [userId, socketIds] of entries) {
+        const activeSocketIds = new Set<string>();
+
+        socketIds.forEach((socketId) => {
+          if (this.server?.sockets?.sockets?.has(socketId)) {
+            activeSocketIds.add(socketId);
+          }
+        });
+
+        if (activeSocketIds.size === 0) {
+          this.connectedUsers.delete(userId);
+          this.userChannels.delete(userId);
+
+          try {
+            const presence = await this.presenceService.setAutomaticStatus(
+              userId,
+              PresenceStatus.OFFLINE,
+            );
+            this.publishPresenceUpdate(presence);
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+              `Failed to mark user ${userId} offline during presence sweep: ${message}`,
+            );
+          }
+
+          continue;
+        }
+
+        if (activeSocketIds.size !== socketIds.size) {
+          this.connectedUsers.set(userId, activeSocketIds);
+        }
+      }
+    } catch (error) {
+      this.logger.debug(
+        `Presence reconciliation error: ${error instanceof Error ? error.message : error}`,
+      );
+    } finally {
+      this.isReconcileInProgress = false;
+    }
+  }
+
   // Method to send message to specific user (for notifications, etc.)
   sendToUser(userId: string, event: string, data: any) {
     const userSockets = this.connectedUsers.get(userId);
@@ -511,98 +588,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Method to send message to channel
   sendToChannel(channelId: string, event: string, data: any) {
     this.server.to(`channel_${channelId}`).emit(event, data);
-  }
-
-  // Media-related WebSocket handlers
-  @SubscribeMessage('media_join_room')
-  handleMediaJoinRoom(
-    @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody()
-    data: {
-      callId: string;
-      options?: { audio: boolean; video: boolean; screen: boolean };
-    },
-  ) {
-    try {
-      const result = this.mediaService.joinRoom(
-        data.callId,
-        client.userId!,
-        data.options || { audio: true, video: true, screen: false },
-      );
-
-      client.emit('media_session_created', { session: result.sessionInfo });
-      client.to(`call_${data.callId}`).emit('media_user_joined', {
-        userId: client.userId,
-        sessionId: result.sessionInfo?.roomId || data.callId,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      client.emit('error', {
-        message: 'Failed to join media room',
-        error: errorMessage,
-      });
-    }
-  }
-
-  @SubscribeMessage('media_leave_room')
-  handleMediaLeaveRoom(
-    @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { callId: string },
-  ) {
-    try {
-      this.mediaService.leaveRoom(data.callId, client.userId!);
-      client.to(`call_${data.callId}`).emit('media_user_left', {
-        userId: client.userId,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      client.emit('error', {
-        message: 'Failed to leave media room',
-        error: errorMessage,
-      });
-    }
-  }
-
-  @SubscribeMessage('screen_share_start')
-  handleScreenShareStart(
-    @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { callId: string },
-  ) {
-    try {
-      void this.mediaService.startScreenShare(data.callId, client.userId!);
-      client.to(`call_${data.callId}`).emit('screen_share_started', {
-        userId: client.userId,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      client.emit('error', {
-        message: 'Failed to start screen sharing',
-        error: errorMessage,
-      });
-    }
-  }
-
-  @SubscribeMessage('screen_share_stop')
-  handleScreenShareStop(
-    @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { callId: string },
-  ) {
-    try {
-      this.mediaService.stopScreenShare(data.callId, client.userId!);
-      client.to(`call_${data.callId}`).emit('screen_share_stopped', {
-        userId: client.userId,
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      client.emit('error', {
-        message: 'Failed to stop screen sharing',
-        error: errorMessage,
-      });
-    }
   }
 
   @SubscribeMessage('quality_report')

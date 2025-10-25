@@ -8,15 +8,14 @@ import { WorkspaceService } from '../services/workspace.service';
 import { ChannelService } from '../services/channel.service';
 import { MessageService } from '../services/message.service';
 import { CallService } from '../services/call.service';
-import { MediaService } from '../services/media.service';
 import { AttachmentService } from '../services/attachment.service';
+import { LivekitService } from '../services/livekit.service';
 
 // Controllers
 import { WorkspaceController } from '../controllers/workspace.controller';
 import { ChannelController } from '../controllers/channel.controller';
 import { MessageController } from '../controllers/message.controller';
 import { CallController } from '../controllers/call.controller';
-import { MediaController } from '../controllers/media.controller';
 
 // Gateway
 import { ChatGateway } from '../websocket/chat.gateway';
@@ -37,7 +36,6 @@ import { PresenceService } from '../services/presence.service';
     ChannelController,
     MessageController,
     CallController,
-    MediaController,
     PresenceController,
   ],
   providers: [
@@ -45,8 +43,8 @@ import { PresenceService } from '../services/presence.service';
     ChannelService,
     MessageService,
     CallService,
-    MediaService,
     AttachmentService,
+    LivekitService,
     PresenceService,
     ChatGateway,
   ],
@@ -55,7 +53,6 @@ import { PresenceService } from '../services/presence.service';
     ChannelService,
     MessageService,
     CallService,
-    MediaService,
     AttachmentService,
   ],
 })

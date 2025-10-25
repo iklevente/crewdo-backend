@@ -4,6 +4,7 @@ import {
   IsUUID,
   IsArray,
   IsBoolean,
+  IsObject,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -33,6 +34,11 @@ export class CreateMessageDto {
   @IsArray()
   @IsUUID('all', { each: true })
   mentionedUserIds?: string[];
+
+  @ApiPropertyOptional({ description: 'Structured payload for embeds' })
+  @IsOptional()
+  @IsObject()
+  embedData?: Record<string, unknown>;
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()
@@ -83,6 +89,9 @@ export class MessageResponseDto {
 
   @ApiProperty()
   isDeleted: boolean;
+
+  @ApiProperty()
+  isSystemMessage: boolean;
 
   @ApiPropertyOptional()
   embedData?: any;

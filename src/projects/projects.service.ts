@@ -5,28 +5,28 @@ import {
   Inject,
 } from '@nestjs/common';
 import { Repository, DataSource, In } from 'typeorm';
-import { Project, User, UserRole, Task, Workspace } from '../entities';
+import { Project, User, UserRole, Task } from '../entities';
 import {
   CreateProjectDto,
   UpdateProjectDto,
   AddProjectMembersDto,
 } from '../dto/project.dto';
+import { NotificationService } from '../services/notification.service';
 
 @Injectable()
 export class ProjectsService {
   private projectRepository: Repository<Project>;
   private userRepository: Repository<User>;
   private taskRepository: Repository<Task>;
-  private workspaceRepository: Repository<Workspace>;
 
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
+    private readonly notificationService: NotificationService,
   ) {
     this.projectRepository = this.dataSource.getRepository(Project);
     this.userRepository = this.dataSource.getRepository(User);
     this.taskRepository = this.dataSource.getRepository(Task);
-    this.workspaceRepository = this.dataSource.getRepository(Workspace);
   }
 
   async create(
@@ -36,25 +36,6 @@ export class ProjectsService {
     const owner = await this.userRepository.findOne({ where: { id: ownerId } });
     if (!owner) {
       throw new NotFoundException('Owner not found');
-    }
-
-    const workspace = await this.workspaceRepository.findOne({
-      where: { id: createProjectDto.workspaceId },
-      relations: ['members'],
-    });
-
-    if (!workspace) {
-      throw new NotFoundException('Workspace not found');
-    }
-
-    const isWorkspaceMember =
-      workspace.ownerId === ownerId ||
-      workspace.members?.some((member) => member.id === ownerId);
-
-    if (!isWorkspaceMember) {
-      throw new ForbiddenException(
-        'You must be a member of the workspace to create a project',
-      );
     }
 
     // Get members if provided
@@ -69,7 +50,6 @@ export class ProjectsService {
       ...createProjectDto,
       ownerId,
       members,
-      workspaceId: workspace.id,
     });
 
     return await this.projectRepository.save(project);
@@ -84,7 +64,6 @@ export class ProjectsService {
       .createQueryBuilder('project')
       .leftJoinAndSelect('project.owner', 'owner')
       .leftJoinAndSelect('project.members', 'members')
-      .leftJoinAndSelect('project.workspace', 'workspace')
       .loadRelationCountAndMap('project.taskCount', 'project.tasks');
 
     // If user is not admin, only show projects they own or are members of
@@ -113,7 +92,6 @@ export class ProjectsService {
       .createQueryBuilder('project')
       .leftJoinAndSelect('project.owner', 'owner')
       .leftJoinAndSelect('project.members', 'members')
-      .leftJoinAndSelect('project.workspace', 'workspace')
       .loadRelationCountAndMap('project.taskCount', 'project.tasks')
       .where('project.id = :id', { id });
 
@@ -140,6 +118,7 @@ export class ProjectsService {
     userRole: UserRole,
   ): Promise<Project> {
     const project = await this.findOne(id, userId, userRole);
+    const previousStatus = project.status;
 
     // Only owner, project managers, and admins can update projects
     if (
@@ -150,38 +129,32 @@ export class ProjectsService {
       throw new ForbiddenException('You can only update your own projects');
     }
 
-    const updatePayload = {
-      ...updateProjectDto,
-    } as unknown as Partial<Project>;
+    await this.projectRepository.update(id, updateProjectDto);
+    const updatedProject = await this.findOne(id, userId, userRole);
 
-    if (updateProjectDto.workspaceId) {
-      const targetWorkspace = await this.workspaceRepository.findOne({
-        where: { id: updateProjectDto.workspaceId },
-        relations: ['members'],
-      });
-
-      if (!targetWorkspace) {
-        throw new NotFoundException('Workspace not found');
+    if (updateProjectDto.status && updateProjectDto.status !== previousStatus) {
+      const recipients = new Set<string>();
+      if (updatedProject.ownerId !== userId) {
+        recipients.add(updatedProject.ownerId);
       }
+      updatedProject.members
+        ?.filter((member) => member.id !== userId)
+        .forEach((member) => recipients.add(member.id));
 
-      const canUseWorkspace =
-        userRole === UserRole.ADMIN ||
-        targetWorkspace.ownerId === userId ||
-        targetWorkspace.members?.some((member) => member.id === userId);
-
-      if (!canUseWorkspace) {
-        throw new ForbiddenException(
-          'You must be a member of the workspace to move this project',
-        );
-      }
-
-      updatePayload.workspaceId = targetWorkspace.id;
-    } else {
-      delete (updatePayload as Record<string, unknown>).workspaceId;
+      await Promise.all(
+        Array.from(recipients).map((recipientId) =>
+          this.notificationService.createProjectStatusChangedNotification(
+            updatedProject.id,
+            updatedProject.name,
+            updatedProject.status,
+            userId,
+            recipientId,
+          ),
+        ),
+      );
     }
 
-    await this.projectRepository.update(id, updatePayload);
-    return await this.findOne(id, userId, userRole);
+    return updatedProject;
   }
 
   async remove(id: string, userId: string, userRole: UserRole): Promise<void> {

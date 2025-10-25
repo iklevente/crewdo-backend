@@ -16,10 +16,11 @@ import { CallParticipant } from './call-participant.entity';
 export enum CallType {
   VOICE = 'voice',
   VIDEO = 'video',
+  SCREEN_SHARE = 'screen_share',
 }
 
 export enum CallStatus {
-  STARTING = 'starting',
+  SCHEDULED = 'scheduled',
   ACTIVE = 'active',
   ENDED = 'ended',
   CANCELLED = 'cancelled',
@@ -40,7 +41,7 @@ export class Call {
   @Column({
     type: 'varchar',
     length: 50,
-    default: CallStatus.STARTING,
+    default: CallStatus.SCHEDULED,
   })
   status: CallStatus;
 
@@ -50,8 +51,8 @@ export class Call {
   @Column({ default: false })
   isScreenSharing: boolean;
 
-  @Column({ nullable: true })
-  screenSharingUserId: string;
+  @Column({ type: 'uuid', nullable: true })
+  screenSharingUserId: string | null;
 
   @Column('text', { nullable: true })
   settings: string; // JSON string for call-specific settings like video quality, etc.

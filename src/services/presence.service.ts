@@ -75,7 +75,13 @@ export class PresenceService {
 
     presence.manualStatus = null;
     presence.statusSource = PresenceSource.AUTO;
-    presence.status = isOnline ? PresenceStatus.ONLINE : PresenceStatus.OFFLINE;
+
+    const shouldRemainOnline =
+      isOnline || presence.status !== PresenceStatus.OFFLINE;
+
+    presence.status = shouldRemainOnline
+      ? PresenceStatus.ONLINE
+      : PresenceStatus.OFFLINE;
     presence.lastSeenAt = now;
 
     const saved = await this.presenceRepository.save(presence);
