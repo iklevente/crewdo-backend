@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from '../config/database.module';
 import { NotificationModule } from './notification.module';
 
@@ -26,9 +27,21 @@ import { PresenceService } from '../services/presence.service';
   imports: [
     DatabaseModule,
     NotificationModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key',
-      signOptions: { expiresIn: '24h' },
+    ConfigModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const secret =
+          configService.get<string>('jwt.secret') ||
+          process.env.JWT_SECRET ||
+          'jwt_secret';
+
+        return {
+          secret,
+          signOptions: { expiresIn: '24h' },
+        };
+      },
     }),
   ],
   controllers: [

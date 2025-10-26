@@ -5,7 +5,6 @@ import {
   BadRequestException,
   Inject,
   Logger,
-  OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
 import { Repository, DataSource, In } from 'typeorm';
@@ -37,15 +36,12 @@ interface CallSettings {
 }
 
 @Injectable()
-export class CallService implements OnModuleInit, OnModuleDestroy {
+export class CallService implements OnModuleInit {
   private readonly logger = new Logger(CallService.name);
   private callRepository: Repository<Call>;
   private callParticipantRepository: Repository<CallParticipant>;
   private userRepository: Repository<User>;
-  private scheduledSweepHandle: NodeJS.Timeout | null = null;
   private isScheduledSweepRunning = false;
-
-  private static readonly SCHEDULE_SWEEP_INTERVAL_MS = 15_000;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -61,20 +57,7 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    if (!this.scheduledSweepHandle) {
-      this.scheduledSweepHandle = setInterval(() => {
-        void this.reconcileScheduledCalls();
-      }, CallService.SCHEDULE_SWEEP_INTERVAL_MS);
-    }
-
     void this.reconcileScheduledCalls();
-  }
-
-  onModuleDestroy() {
-    if (this.scheduledSweepHandle) {
-      clearInterval(this.scheduledSweepHandle);
-      this.scheduledSweepHandle = null;
-    }
   }
 
   private parseCallSettings(settings?: string | null): CallSettings {
@@ -670,6 +653,8 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     status?: CallStatus,
   ): Promise<CallResponseDto[]> {
+    await this.reconcileScheduledCalls();
+
     const queryBuilder = this.callRepository
       .createQueryBuilder('call')
       .leftJoinAndSelect('call.initiator', 'initiator')

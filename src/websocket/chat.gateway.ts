@@ -9,7 +9,7 @@ import {
   OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger, OnModuleDestroy } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { MessageService } from '../services/message.service';
 import { ChannelService } from '../services/channel.service';
@@ -39,11 +39,7 @@ interface AuthenticatedSocket extends Socket {
   namespace: '/',
 })
 export class ChatGateway
-  implements
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    OnGatewayInit,
-    OnModuleDestroy
+  implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit
 {
   @WebSocketServer()
   server: Server;
@@ -51,10 +47,7 @@ export class ChatGateway
   private readonly logger = new Logger(ChatGateway.name);
   private connectedUsers = new Map<string, Set<string>>(); // userId -> Set of socketIds
   private userChannels = new Map<string, Set<string>>(); // userId -> Set of channelIds
-  private presenceSweepInterval: NodeJS.Timeout | null = null;
   private isReconcileInProgress = false;
-
-  private static readonly PRESENCE_SWEEP_INTERVAL_MS = 60_000;
 
   constructor(
     private messageService: MessageService,
@@ -65,16 +58,6 @@ export class ChatGateway
 
   afterInit(server: Server) {
     this.server = server;
-    this.presenceSweepInterval = setInterval(() => {
-      void this.reconcileConnections();
-    }, ChatGateway.PRESENCE_SWEEP_INTERVAL_MS);
-  }
-
-  onModuleDestroy() {
-    if (this.presenceSweepInterval) {
-      clearInterval(this.presenceSweepInterval);
-      this.presenceSweepInterval = null;
-    }
   }
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -134,6 +117,8 @@ export class ChatGateway
       this.logger.log(
         `User ${client.userId} connected with socket ${client.id}`,
       );
+
+      void this.reconcileConnections();
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -172,6 +157,8 @@ export class ChatGateway
         `User ${client.userId} disconnected from socket ${client.id}`,
       );
     }
+
+    void this.reconcileConnections();
   }
 
   @SubscribeMessage('join_channel')
