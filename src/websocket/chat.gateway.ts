@@ -61,7 +61,9 @@ export class ChatGateway
   }
 
   async handleConnection(client: AuthenticatedSocket) {
-    this.logger.log(`[handleConnection] Client ${client.id} attempting to connect`);
+    this.logger.log(
+      `[handleConnection] Client ${client.id} attempting to connect`,
+    );
     try {
       const authToken = client.handshake.auth?.token as unknown;
       const authHeader = client.handshake.headers?.authorization as unknown;
@@ -84,9 +86,13 @@ export class ChatGateway
         return;
       }
 
-      this.logger.log(`[handleConnection] Client ${client.id} has token, verifying JWT`);
+      this.logger.log(
+        `[handleConnection] Client ${client.id} has token, verifying JWT`,
+      );
       const payload = this.jwtService.verify<JwtPayload>(token);
-      this.logger.log(`[handleConnection] Client ${client.id} JWT verified, userId: ${payload.sub}`);
+      this.logger.log(
+        `[handleConnection] Client ${client.id} JWT verified, userId: ${payload.sub}`,
+      );
       client.userId = payload.sub;
       client.user = payload;
 

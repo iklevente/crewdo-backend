@@ -58,7 +58,7 @@ export class CallService implements OnModuleInit {
 
   onModuleInit() {
     void this.reconcileScheduledCalls();
-    
+
     // Check for scheduled call transitions every 30 seconds
     setInterval(() => {
       void this.reconcileScheduledCalls();
