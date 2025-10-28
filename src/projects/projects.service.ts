@@ -52,7 +52,18 @@ export class ProjectsService {
       members,
     });
 
-    return await this.projectRepository.save(project);
+    const savedProject = await this.projectRepository.save(project);
+
+    // Reload project with all relations for websocket broadcasting
+    const projectWithRelations = await this.projectRepository
+      .createQueryBuilder('project')
+      .leftJoinAndSelect('project.owner', 'owner')
+      .leftJoinAndSelect('project.members', 'members')
+      .loadRelationCountAndMap('project.taskCount', 'project.tasks')
+      .where('project.id = :id', { id: savedProject.id })
+      .getOne();
+
+    return projectWithRelations || savedProject;
   }
 
   async findAll(

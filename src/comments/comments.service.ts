@@ -88,7 +88,17 @@ export class CommentsService {
       console.warn('Failed to send comment notification:', error);
     }
 
-    return savedComment;
+    // Reload comment with task, project, and members for websocket broadcasting
+    const commentWithRelations = await this.commentRepository
+      .createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.task', 'task')
+      .leftJoinAndSelect('task.project', 'project')
+      .leftJoinAndSelect('project.members', 'members')
+      .leftJoinAndSelect('comment.author', 'author')
+      .where('comment.id = :id', { id: savedComment.id })
+      .getOne();
+
+    return commentWithRelations || savedComment;
   }
 
   async findByTaskId(

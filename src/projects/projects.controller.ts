@@ -18,6 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
+import { ChatGateway } from '../websocket/chat.gateway';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import {
@@ -26,14 +27,30 @@ import {
   AddProjectMembersDto,
   ProjectResponseDto,
 } from '../dto/project.dto';
-import { User } from '../entities';
+import { User, Project as ProjectEntity } from '../entities';
 
 @ApiTags('Projects')
 @Controller('projects')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
+
+  private getProjectRecipients(project: ProjectEntity): string[] {
+    const memberIds = project.members?.map((m) => m.id).filter(Boolean) || [];
+    const ownerId = project.ownerId;
+    const recipients = ownerId ? [...memberIds, ownerId] : memberIds;
+    console.log('[ProjectsController] getProjectRecipients:', {
+      projectId: project.id,
+      ownerId,
+      memberCount: memberIds.length,
+      recipients,
+    });
+    return recipients;
+  }
 
   @ApiOperation({ summary: 'Create a new project' })
   @ApiResponse({
@@ -46,7 +63,26 @@ export class ProjectsController {
     @Body() createProjectDto: CreateProjectDto,
     @CurrentUser() user: User,
   ) {
-    return await this.projectsService.create(createProjectDto, user.id);
+    const project = await this.projectsService.create(
+      createProjectDto,
+      user.id,
+    );
+
+    console.log('[ProjectsController] create - project returned:', {
+      id: project.id,
+      ownerId: project.ownerId,
+      hasMembersArray: Array.isArray(project.members),
+      memberCount: project.members?.length || 0,
+    });
+
+    // Broadcast to all project members and owner
+    this.chatGateway.publishProjectUpdate(
+      'project_created',
+      project,
+      this.getProjectRecipients(project),
+    );
+
+    return project;
   }
 
   @ApiOperation({ summary: 'Get all projects accessible to the current user' })
@@ -103,12 +139,21 @@ export class ProjectsController {
     @Body() updateProjectDto: UpdateProjectDto,
     @CurrentUser() user: User,
   ) {
-    return await this.projectsService.update(
+    const project = await this.projectsService.update(
       id,
       updateProjectDto,
       user.id,
       user.role,
     );
+
+    // Broadcast to all project members and owner
+    this.chatGateway.publishProjectUpdate(
+      'project_updated',
+      project,
+      this.getProjectRecipients(project),
+    );
+
+    return project;
   }
 
   @ApiOperation({ summary: 'Delete project' })
@@ -123,7 +168,18 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: User,
   ) {
+    // Get project first to know who to notify
+    const project = await this.projectsService.findOne(id, user.id, user.role);
+
     await this.projectsService.remove(id, user.id, user.role);
+
+    // Broadcast deletion to all former members and owner
+    this.chatGateway.publishProjectUpdate(
+      'project_deleted',
+      { id },
+      this.getProjectRecipients(project),
+    );
+
     return { message: 'Project deleted successfully' };
   }
 
@@ -144,12 +200,21 @@ export class ProjectsController {
     @Body() addMembersDto: AddProjectMembersDto,
     @CurrentUser() user: User,
   ) {
-    return await this.projectsService.addMembers(
+    const project = await this.projectsService.addMembers(
       id,
       addMembersDto,
       user.id,
       user.role,
     );
+
+    // Broadcast to all project members (including new ones) and owner
+    this.chatGateway.publishProjectUpdate(
+      'project_updated',
+      project,
+      this.getProjectRecipients(project),
+    );
+
+    return project;
   }
 
   @ApiOperation({ summary: 'Remove member from project' })
@@ -169,11 +234,21 @@ export class ProjectsController {
     @Param('memberId', ParseUUIDPipe) memberId: string,
     @CurrentUser() user: User,
   ) {
-    return await this.projectsService.removeMember(
+    const project = await this.projectsService.removeMember(
       id,
       memberId,
       user.id,
       user.role,
     );
+
+    // Broadcast to remaining members, owner AND the removed member
+    const allRecipients = [...this.getProjectRecipients(project), memberId];
+    this.chatGateway.publishProjectUpdate(
+      'project_updated',
+      project,
+      allRecipients,
+    );
+
+    return project;
   }
 }

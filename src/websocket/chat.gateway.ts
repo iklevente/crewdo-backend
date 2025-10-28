@@ -9,12 +9,14 @@ import {
   OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { MessageService } from '../services/message.service';
 import { ChannelService } from '../services/channel.service';
+import { NotificationService } from '../services/notification.service';
 import { CreateMessageDto } from '../dto/message.dto';
 import { PresenceResponseDto } from '../dto/presence.dto';
+import { NotificationResponseDto } from '../dto/notification.dto';
 import { PresenceService } from '../services/presence.service';
 import { PresenceStatus, UserRole } from '../entities';
 import { CallResponseDto } from '../dto/call.dto';
@@ -48,16 +50,40 @@ export class ChatGateway
   private connectedUsers = new Map<string, Set<string>>(); // userId -> Set of socketIds
   private userChannels = new Map<string, Set<string>>(); // userId -> Set of channelIds
   private isReconcileInProgress = false;
+  private recentlyConnected = new Map<string, number>(); // socketId -> timestamp
+  private pendingEmits: Array<{
+    userId: string;
+    event: string;
+    data: unknown;
+  }> = [];
+  private pendingByUser = new Map<
+    string,
+    Array<{ event: string; data: unknown }>
+  >();
 
   constructor(
     private messageService: MessageService,
     private jwtService: JwtService,
     private channelService: ChannelService,
     private presenceService: PresenceService,
-  ) {}
+    @Inject(forwardRef(() => NotificationService))
+    private notificationService: NotificationService,
+  ) {
+    // DON'T register callback here - server isn't ready yet
+  }
 
   afterInit(server: Server) {
     this.server = server;
+    this.logger.log('WebSocket server initialized');
+
+    // Register callback AFTER server is initialized
+    this.notificationService.setNotificationCreatedCallback(
+      (userId: string, notification: NotificationResponseDto) => {
+        this.sendToUser(userId, 'notification_created', notification);
+      },
+    );
+
+    this.flushPendingEmits();
   }
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -111,6 +137,12 @@ export class ChatGateway
       }
       this.connectedUsers.get(client.userId)!.add(client.id);
 
+      // Mark socket as recently connected (protect from immediate reconciliation)
+      this.recentlyConnected.set(client.id, Date.now());
+      setTimeout(() => {
+        this.recentlyConnected.delete(client.id);
+      }, 5000); // 5 second grace period
+
       this.logger.log(
         `User ${client.userId} connected with socket ${client.id}. Total connected users: ${this.connectedUsers.size}`,
       );
@@ -126,6 +158,8 @@ export class ChatGateway
       this.publishPresenceUpdate(presence);
 
       await this.sendPresenceSnapshot(client.userId);
+
+      this.flushUserPending(client.userId);
 
       // Don't call reconcileConnections immediately - it can clear newly connected sockets
       // that aren't yet in server.sockets.sockets map
@@ -151,6 +185,9 @@ export class ChatGateway
       if (userSockets) {
         userSockets.delete(client.id);
 
+        // Clean up recently connected tracking
+        this.recentlyConnected.delete(client.id);
+
         // If user has no more connections, mark as offline
         if (userSockets.size === 0) {
           this.connectedUsers.delete(client.userId);
@@ -168,7 +205,8 @@ export class ChatGateway
       );
     }
 
-    void this.reconcileConnections();
+    // TEMPORARILY DISABLED - reconcileConnections causes race conditions
+    // void this.reconcileConnections();
   }
 
   @SubscribeMessage('join_channel')
@@ -541,6 +579,15 @@ export class ChatGateway
         const activeSocketIds = new Set<string>();
 
         socketIds.forEach((socketId) => {
+          // Skip recently connected sockets - give them time to fully initialize
+          if (this.recentlyConnected.has(socketId)) {
+            this.logger.debug(
+              `Skipping recently connected socket ${socketId} in reconciliation`,
+            );
+            activeSocketIds.add(socketId);
+            return;
+          }
+
           if (this.server?.sockets?.sockets?.has(socketId)) {
             activeSocketIds.add(socketId);
           }
@@ -581,7 +628,15 @@ export class ChatGateway
   }
 
   // Method to send message to specific user (for notifications, etc.)
-  sendToUser(userId: string, event: string, data: any) {
+  sendToUser(userId: string, event: string, data: unknown) {
+    if (!this.server) {
+      this.logger.warn(
+        `Cannot send ${event} to user ${userId}: WebSocket server not initialized yet. Queuing event.`,
+      );
+      this.pendingEmits.push({ userId, event, data });
+      return;
+    }
+
     const userSockets = this.connectedUsers.get(userId);
     if (userSockets) {
       this.logger.log(
@@ -592,9 +647,39 @@ export class ChatGateway
       });
     } else {
       this.logger.warn(
-        `User ${userId} not connected, cannot send ${event}. Connected users: ${Array.from(this.connectedUsers.keys()).join(', ')}`,
+        `User ${userId} not connected, queueing ${event}. Connected users: ${Array.from(this.connectedUsers.keys()).join(', ')}`,
       );
+      if (!this.pendingByUser.has(userId)) {
+        this.pendingByUser.set(userId, []);
+      }
+      this.pendingByUser.get(userId)!.push({ event, data });
     }
+  }
+
+  private flushPendingEmits() {
+    if (!this.server || this.pendingEmits.length === 0) {
+      return;
+    }
+    const pending = [...this.pendingEmits];
+    this.pendingEmits.length = 0;
+    pending.forEach(({ userId, event, data }) => {
+      this.sendToUser(userId, event, data);
+    });
+  }
+
+  private flushUserPending(userId: string) {
+    this.flushPendingEmits();
+    const pendingForUser = this.pendingByUser.get(userId);
+    if (!pendingForUser || pendingForUser.length === 0) {
+      return;
+    }
+    this.logger.log(
+      `Flushing ${pendingForUser.length} queued events for user ${userId}`,
+    );
+    this.pendingByUser.delete(userId);
+    pendingForUser.forEach(({ event, data }) => {
+      this.sendToUser(userId, event, data);
+    });
   }
 
   public publishCallUpdate(
@@ -607,6 +692,23 @@ export class ChatGateway
 
     uniqueRecipients.forEach((userId) => {
       this.sendToUser(userId, 'call_updated', payload);
+    });
+  }
+
+  public publishProjectUpdate(
+    event: string,
+    payload: any,
+    recipients: Iterable<string>,
+  ): void {
+    const uniqueRecipients = new Set(
+      Array.from(recipients || []).filter((userId) => Boolean(userId)),
+    );
+
+    this.logger.log(
+      `Broadcasting ${event} to ${uniqueRecipients.size} recipients: ${Array.from(uniqueRecipients).join(', ')}`,
+    );
+    uniqueRecipients.forEach((userId) => {
+      this.sendToUser(userId, event, payload);
     });
   }
 

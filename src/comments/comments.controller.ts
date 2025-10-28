@@ -18,6 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { CommentsService } from './comments.service';
+import { ChatGateway } from '../websocket/chat.gateway';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import {
@@ -26,13 +27,24 @@ import {
   CommentResponseDto,
 } from '../dto/comment.dto';
 import { User } from '../entities';
+import { Comment as CommentEntity } from '../entities/comment.entity';
 
 @ApiTags('Comments')
 @Controller('comments')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class CommentsController {
-  constructor(private readonly commentsService: CommentsService) {}
+  constructor(
+    private readonly commentsService: CommentsService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
+
+  private getCommentRecipients(comment: CommentEntity): string[] {
+    const memberIds =
+      comment.task?.project?.members?.map((m) => m.id).filter(Boolean) || [];
+    const ownerId = comment.task?.project?.ownerId as string | undefined;
+    return ownerId ? [...memberIds, ownerId] : memberIds;
+  }
 
   @ApiOperation({ summary: 'Create a new comment' })
   @ApiResponse({
@@ -47,7 +59,19 @@ export class CommentsController {
     @Body() createCommentDto: CreateCommentDto,
     @CurrentUser() user: User,
   ) {
-    return await this.commentsService.create(createCommentDto, user.id);
+    const comment = await this.commentsService.create(
+      createCommentDto,
+      user.id,
+    );
+
+    // Broadcast to project members and owner
+    this.chatGateway.publishProjectUpdate(
+      'comment_created',
+      comment,
+      this.getCommentRecipients(comment),
+    );
+
+    return comment;
   }
 
   @ApiOperation({ summary: 'Get comments for a task' })
@@ -100,12 +124,21 @@ export class CommentsController {
     @Body() updateCommentDto: UpdateCommentDto,
     @CurrentUser() user: User,
   ) {
-    return await this.commentsService.update(
+    const comment = await this.commentsService.update(
       id,
       updateCommentDto,
       user.id,
       user.role,
     );
+
+    // Broadcast to project members and owner
+    this.chatGateway.publishProjectUpdate(
+      'comment_updated',
+      comment,
+      this.getCommentRecipients(comment),
+    );
+
+    return comment;
   }
 
   @ApiOperation({ summary: 'Delete comment' })
@@ -117,7 +150,18 @@ export class CommentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: User,
   ) {
+    // Get comment first to know who to notify
+    const comment = await this.commentsService.findOne(id, user.id, user.role);
+
     await this.commentsService.remove(id, user.id, user.role);
+
+    // Broadcast deletion to project members and owner
+    this.chatGateway.publishProjectUpdate(
+      'comment_deleted',
+      { id, taskId: comment.task?.id },
+      this.getCommentRecipients(comment),
+    );
+
     return { message: 'Comment deleted successfully' };
   }
 }

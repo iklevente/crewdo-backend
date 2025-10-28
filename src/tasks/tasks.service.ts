@@ -93,7 +93,18 @@ export class TasksService {
       }
     }
 
-    return savedTask;
+    // Reload task with project and members for websocket broadcasting
+    const taskWithRelations = await this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.project', 'project')
+      .leftJoinAndSelect('project.members', 'members')
+      .leftJoinAndSelect('task.assignee', 'assignee')
+      .leftJoinAndSelect('task.creator', 'creator')
+      .loadRelationCountAndMap('task.commentCount', 'task.comments')
+      .where('task.id = :id', { id: savedTask.id })
+      .getOne();
+
+    return taskWithRelations || savedTask;
   }
 
   async findAll(

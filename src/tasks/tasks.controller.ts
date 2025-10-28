@@ -18,6 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
+import { ChatGateway } from '../websocket/chat.gateway';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CreateTaskDto, UpdateTaskDto, TaskResponseDto } from '../dto/task.dto';
@@ -28,7 +29,10 @@ import { User } from '../entities';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class TasksController {
-  constructor(private readonly tasksService: TasksService) {}
+  constructor(
+    private readonly tasksService: TasksService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   @ApiOperation({ summary: 'Create a new task' })
   @ApiResponse({
@@ -45,7 +49,16 @@ export class TasksController {
     @Body() createTaskDto: CreateTaskDto,
     @CurrentUser() user: User,
   ) {
-    return await this.tasksService.create(createTaskDto, user.id);
+    const task = await this.tasksService.create(createTaskDto, user.id);
+
+    // Broadcast to project members and owner
+    const memberIds =
+      task.project?.members?.map((m) => m.id).filter(Boolean) || [];
+    const ownerId = task.project?.ownerId;
+    const allRecipients = ownerId ? [...memberIds, ownerId] : memberIds;
+    this.chatGateway.publishProjectUpdate('task_created', task, allRecipients);
+
+    return task;
   }
 
   @ApiOperation({ summary: 'Get all tasks accessible to the current user' })
@@ -109,12 +122,21 @@ export class TasksController {
     @Body() updateTaskDto: UpdateTaskDto,
     @CurrentUser() user: User,
   ) {
-    return await this.tasksService.update(
+    const task = await this.tasksService.update(
       id,
       updateTaskDto,
       user.id,
       user.role,
     );
+
+    // Broadcast to project members and owner
+    const memberIds =
+      task.project?.members?.map((m) => m.id).filter(Boolean) || [];
+    const ownerId = task.project?.ownerId;
+    const allRecipients = ownerId ? [...memberIds, ownerId] : memberIds;
+    this.chatGateway.publishProjectUpdate('task_updated', task, allRecipients);
+
+    return task;
   }
 
   @ApiOperation({ summary: 'Update task position for ordering' })
@@ -129,12 +151,21 @@ export class TasksController {
     @Body('position') position: number,
     @CurrentUser() user: User,
   ) {
-    return await this.tasksService.updateTaskPosition(
+    const task = await this.tasksService.updateTaskPosition(
       id,
       position,
       user.id,
       user.role,
     );
+
+    // Broadcast to project members and owner
+    const memberIds =
+      task.project?.members?.map((m) => m.id).filter(Boolean) || [];
+    const ownerId = task.project?.ownerId;
+    const allRecipients = ownerId ? [...memberIds, ownerId] : memberIds;
+    this.chatGateway.publishProjectUpdate('task_updated', task, allRecipients);
+
+    return task;
   }
 
   @ApiOperation({ summary: 'Delete task' })
@@ -146,7 +177,22 @@ export class TasksController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: User,
   ) {
+    // Get task first to know who to notify
+    const task = await this.tasksService.findOne(id, user.id, user.role);
+    const memberIds =
+      task.project?.members?.map((m) => m.id).filter(Boolean) || [];
+    const ownerId = task.project?.ownerId;
+    const allRecipients = ownerId ? [...memberIds, ownerId] : memberIds;
+
     await this.tasksService.remove(id, user.id, user.role);
+
+    // Broadcast deletion to project members and owner
+    this.chatGateway.publishProjectUpdate(
+      'task_deleted',
+      { id, projectId: task.project?.id },
+      allRecipients,
+    );
+
     return { message: 'Task deleted successfully' };
   }
 }

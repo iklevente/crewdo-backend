@@ -17,6 +17,10 @@ import {
 export class NotificationService {
   private notificationRepository: Repository<Notification>;
   private userRepository: Repository<User>;
+  private onNotificationCreatedCallback?: (
+    userId: string,
+    notification: NotificationResponseDto,
+  ) => void;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -24,6 +28,13 @@ export class NotificationService {
   ) {
     this.notificationRepository = this.dataSource.getRepository(Notification);
     this.userRepository = this.dataSource.getRepository(User);
+  }
+
+  // Allow ChatGateway to register a callback for broadcasting
+  setNotificationCreatedCallback(
+    callback: (userId: string, notification: NotificationResponseDto) => void,
+  ): void {
+    this.onNotificationCreatedCallback = callback;
   }
 
   async create(
@@ -49,7 +60,26 @@ export class NotificationService {
     const savedNotification =
       await this.notificationRepository.save(notification);
 
-    return this.formatNotificationResponse(savedNotification);
+    const response = this.formatNotificationResponse(savedNotification);
+
+    // Trigger callback for WebSocket broadcasting (if registered)
+    if (this.onNotificationCreatedCallback) {
+      console.log('[NotificationService] Broadcasting notification:', {
+        type: response.type,
+        userId: createNotificationDto.userId,
+        title: response.title,
+      });
+      this.onNotificationCreatedCallback(
+        createNotificationDto.userId,
+        response,
+      );
+    } else {
+      console.warn(
+        '[NotificationService] No callback registered - notification not broadcast',
+      );
+    }
+
+    return response;
   }
 
   async findByUser(

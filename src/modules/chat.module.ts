@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from '../config/database.module';
@@ -26,7 +26,7 @@ import { PresenceService } from '../services/presence.service';
 @Module({
   imports: [
     DatabaseModule,
-    NotificationModule,
+    forwardRef(() => NotificationModule),
     ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -67,6 +67,7 @@ import { PresenceService } from '../services/presence.service';
     MessageService,
     CallService,
     AttachmentService,
+    ChatGateway,
   ],
 })
 export class ChatModule {}

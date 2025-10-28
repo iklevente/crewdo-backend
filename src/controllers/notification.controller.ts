@@ -21,6 +21,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { NotificationService } from '../services/notification.service';
+import { ChatGateway } from '../websocket/chat.gateway';
 import {
   CreateNotificationDto,
   UpdateNotificationDto,
@@ -42,7 +43,10 @@ interface AuthenticatedRequest {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class NotificationController {
-  constructor(private readonly notificationService: NotificationService) {}
+  constructor(
+    private readonly notificationService: NotificationService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new notification' })
@@ -54,7 +58,18 @@ export class NotificationController {
   async create(
     @Body() createNotificationDto: CreateNotificationDto,
   ): Promise<NotificationResponseDto> {
-    return this.notificationService.create(createNotificationDto);
+    const notification = await this.notificationService.create(
+      createNotificationDto,
+    );
+
+    // Broadcast to the user who received the notification
+    this.chatGateway.sendToUser(
+      createNotificationDto.userId,
+      'notification_created',
+      notification,
+    );
+
+    return notification;
   }
 
   @Get('user/:userId')
@@ -203,11 +218,20 @@ export class NotificationController {
     @Body() updateNotificationDto: UpdateNotificationDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<NotificationResponseDto> {
-    return this.notificationService.update(
+    const notification = await this.notificationService.update(
       id,
       updateNotificationDto,
       req.user.id,
     );
+
+    // Broadcast to the user
+    this.chatGateway.sendToUser(
+      req.user.id,
+      'notification_updated',
+      notification,
+    );
+
+    return notification;
   }
 
   @Post('user/:userId/mark-all-read')
@@ -238,6 +262,12 @@ export class NotificationController {
       userId,
       req.user.id,
     );
+
+    // Broadcast to the user
+    this.chatGateway.sendToUser(userId, 'notifications_marked_read', {
+      markedCount,
+    });
+
     return { markedCount };
   }
 
@@ -256,6 +286,12 @@ export class NotificationController {
       req.user.id,
       req.user.id,
     );
+
+    // Broadcast to the user
+    this.chatGateway.sendToUser(req.user.id, 'notifications_marked_read', {
+      markedCount,
+    });
+
     return { markedCount };
   }
 
@@ -271,6 +307,10 @@ export class NotificationController {
     @Request() req: AuthenticatedRequest,
   ): Promise<{ message: string }> {
     await this.notificationService.deleteNotification(id, req.user.id);
+
+    // Broadcast to the user
+    this.chatGateway.sendToUser(req.user.id, 'notification_deleted', { id });
+
     return { message: 'Notification deleted successfully' };
   }
 }
