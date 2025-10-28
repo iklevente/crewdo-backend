@@ -58,6 +58,11 @@ export class CallService implements OnModuleInit {
 
   onModuleInit() {
     void this.reconcileScheduledCalls();
+    
+    // Check for scheduled call transitions every 30 seconds
+    setInterval(() => {
+      void this.reconcileScheduledCalls();
+    }, 30_000);
   }
 
   private parseCallSettings(settings?: string | null): CallSettings {
@@ -198,7 +203,12 @@ export class CallService implements OnModuleInit {
       const recipients = this.collectCallRecipients(hydratedCall);
 
       if (recipients.size > 0) {
+        this.logger.log(
+          `Emitting call_updated for call ${call.id} to ${recipients.size} recipients: ${Array.from(recipients).join(', ')}`,
+        );
         this.chatGateway.publishCallUpdate(payload, recipients);
+      } else {
+        this.logger.warn(`No recipients found for call ${call.id}`);
       }
     } catch (error) {
       const message =

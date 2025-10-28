@@ -45,7 +45,7 @@ export const databaseProviders = [
           UserPresence,
         ],
         synchronize: true,
-        logging: process.env.NODE_ENV === 'development',
+        logging: false, // Disabled for cleaner logs
         options: {
           encrypt: false, // Set to true if using Azure SQL
           trustServerCertificate: true, // For local development

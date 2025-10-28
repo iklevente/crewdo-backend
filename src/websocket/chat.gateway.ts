@@ -61,6 +61,7 @@ export class ChatGateway
   }
 
   async handleConnection(client: AuthenticatedSocket) {
+    this.logger.log(`[handleConnection] Client ${client.id} attempting to connect`);
     try {
       const authToken = client.handshake.auth?.token as unknown;
       const authHeader = client.handshake.headers?.authorization as unknown;
@@ -77,13 +78,15 @@ export class ChatGateway
 
       if (!token) {
         this.logger.warn(
-          `Client ${client.id} connected without token, disconnecting`,
+          `[handleConnection] Client ${client.id} connected without token, disconnecting`,
         );
         client.disconnect();
         return;
       }
 
+      this.logger.log(`[handleConnection] Client ${client.id} has token, verifying JWT`);
       const payload = this.jwtService.verify<JwtPayload>(token);
+      this.logger.log(`[handleConnection] Client ${client.id} JWT verified, userId: ${payload.sub}`);
       client.userId = payload.sub;
       client.user = payload;
 
@@ -102,6 +105,10 @@ export class ChatGateway
       }
       this.connectedUsers.get(client.userId)!.add(client.id);
 
+      this.logger.log(
+        `User ${client.userId} connected with socket ${client.id}. Total connected users: ${this.connectedUsers.size}`,
+      );
+
       // Join user to their channels
       await this.joinUserChannels(client);
 
@@ -114,11 +121,8 @@ export class ChatGateway
 
       await this.sendPresenceSnapshot(client.userId);
 
-      this.logger.log(
-        `User ${client.userId} connected with socket ${client.id}`,
-      );
-
-      void this.reconcileConnections();
+      // Don't call reconcileConnections immediately - it can clear newly connected sockets
+      // that aren't yet in server.sockets.sockets map
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -574,9 +578,16 @@ export class ChatGateway
   sendToUser(userId: string, event: string, data: any) {
     const userSockets = this.connectedUsers.get(userId);
     if (userSockets) {
+      this.logger.log(
+        `Sending ${event} to user ${userId} (${userSockets.size} sockets)`,
+      );
       userSockets.forEach((socketId) => {
         this.server.to(socketId).emit(event, data);
       });
+    } else {
+      this.logger.warn(
+        `User ${userId} not connected, cannot send ${event}. Connected users: ${Array.from(this.connectedUsers.keys()).join(', ')}`,
+      );
     }
   }
 

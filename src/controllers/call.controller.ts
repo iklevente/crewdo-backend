@@ -18,6 +18,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { CallService } from '../services/call.service';
+import { ChatGateway } from '../websocket/chat.gateway';
 import {
   StartCallDto,
   ScheduleCallDto,
@@ -42,7 +43,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class CallController {
-  constructor(private readonly callService: CallService) {}
+  constructor(
+    private readonly callService: CallService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List calls visible to the current user' })
@@ -69,7 +73,14 @@ export class CallController {
     @Body() startCallDto: StartCallDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<CallResponseDto> {
-    return this.callService.startCall(startCallDto, req.user.id);
+    const call = await this.callService.startCall(startCallDto, req.user.id);
+
+    // Broadcast call update to all participants
+    const participantIds =
+      call.participants?.map((p) => p.user?.id).filter(Boolean) ?? [];
+    this.chatGateway.publishCallUpdate(call, participantIds);
+
+    return call;
   }
 
   @Post('schedule')
@@ -83,7 +94,17 @@ export class CallController {
     @Body() scheduleCallDto: ScheduleCallDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<CallResponseDto> {
-    return this.callService.scheduleCall(scheduleCallDto, req.user.id);
+    const call = await this.callService.scheduleCall(
+      scheduleCallDto,
+      req.user.id,
+    );
+
+    // Broadcast call update to all participants
+    const participantIds =
+      call.participants?.map((p) => p.user?.id).filter(Boolean) ?? [];
+    this.chatGateway.publishCallUpdate(call, participantIds);
+
+    return call;
   }
 
   @Post(':id/join')
