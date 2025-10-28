@@ -52,8 +52,6 @@ kill $SERVER_PID 2>/dev/null
 
 # Create output directories
 mkdir -p generated-clients/typescript-axios
-mkdir -p generated-clients/javascript
-mkdir -p generated-clients/react-query
 
 # Generate TypeScript Axios client
 echo -e "${YELLOW}🔧 Generating TypeScript Axios client...${NC}"
@@ -63,23 +61,6 @@ npx openapi-generator-cli generate \
     -o generated-clients/typescript-axios \
     --config openapi-generator-config.json \
     --additional-properties=withSeparateModelsAndApi=true,apiPackage=api,modelPackage=models
-
-# Generate JavaScript client
-echo -e "${YELLOW}🔧 Generating JavaScript client...${NC}"
-npx openapi-generator-cli generate \
-    -i openapi.json \
-    -g javascript \
-    -o generated-clients/javascript \
-    --config openapi-generator-config.json
-
-# Generate React Query hooks (using TypeScript Axios as base)
-echo -e "${YELLOW}🔧 Generating React Query client...${NC}"
-npx openapi-generator-cli generate \
-    -i openapi.json \
-    -g typescript-axios \
-    -o generated-clients/react-query \
-    --config openapi-generator-config.json \
-    --additional-properties=withSeparateModelsAndApi=true,apiPackage=api,modelPackage=models,useSingleRequestParameter=true
 
 # Create a README for the generated clients
 cat > generated-clients/README.md << 'EOF'
@@ -104,22 +85,6 @@ This directory contains auto-generated API clients for the Crewdo Backend API.
   const api = new DefaultApi(config);
   ```
 
-### JavaScript Client (`javascript/`)
-- **Best for**: Plain JavaScript projects
-- **Features**: ES6+ compatible, Promise-based
-- **Usage**:
-  ```javascript
-  import { DefaultApi } from './javascript';
-  
-  const api = new DefaultApi();
-  api.basePath = 'http://localhost:3000/api';
-  ```
-
-### React Query Client (`react-query/`)
-- **Best for**: React applications using TanStack Query (React Query)
-- **Features**: TypeScript support, optimized for React Query patterns
-- **Usage**: You can use this as a base to create React Query hooks
-
 ## Installation
 
 Copy the generated client folder to your frontend project and install dependencies:
@@ -142,50 +107,6 @@ const config = new Configuration({
   accessToken: 'your-jwt-token'
 });
 ```
-
-## Available Endpoints
-
-The generated clients include all endpoints from the Crewdo API:
-
-- **Authentication**: Login, register, token refresh
-- **Users**: User management operations  
-- **Projects**: Project CRUD operations
-- **Tasks**: Task management
-- **Comments**: Comment operations
-- **Media**: VoIP and media operations
-- **Messages**: Real-time messaging
-- **Workspaces**: Workspace management
-
-## Regenerating Clients
-
-To regenerate the clients after API changes:
-
-```bash
-npm run generate:client
-```
-
-This will:
-1. Build the backend
-2. Start the server temporarily  
-3. Download the latest OpenAPI spec
-4. Generate fresh client code
-5. Stop the server
-
-## TypeScript Types
-
-All generated clients include comprehensive TypeScript types for:
-- Request/response models
-- API endpoints
-- Error responses
-- Configuration options
-
-## Support
-
-If you encounter issues with the generated clients:
-1. Ensure the backend server is running
-2. Check that all API endpoints have proper OpenAPI decorators
-3. Verify the OpenAPI spec at `http://localhost:3000/api/docs`
-4. Regenerate the clients with the latest spec
 EOF
 
 echo -e "${GREEN}✅ Client generation completed successfully!${NC}"

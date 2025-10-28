@@ -28,6 +28,7 @@ import {
 } from '@nestjs/swagger';
 import { MessageService } from '../services/message.service';
 import { ChannelService } from '../services/channel.service';
+import { ChatGateway } from '../websocket/chat.gateway';
 import {
   CreateMessageDto,
   UpdateMessageDto,
@@ -56,6 +57,7 @@ export class MessageController {
   constructor(
     private readonly messageService: MessageService,
     private readonly channelService: ChannelService,
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   @Post()
@@ -69,7 +71,19 @@ export class MessageController {
     @Body() createMessageDto: CreateMessageDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto> {
-    return this.messageService.create(createMessageDto, req.user.id);
+    const message = await this.messageService.create(
+      createMessageDto,
+      req.user.id,
+    );
+
+    // Broadcast the message via websocket
+    this.chatGateway.sendToChannel(
+      createMessageDto.channelId,
+      'new_message',
+      message,
+    );
+
+    return message;
   }
 
   @Get('channel/:channelId')
@@ -268,7 +282,18 @@ export class MessageController {
     @Body() messageReactionDto: MessageReactionDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    return this.messageService.addReaction(messageReactionDto, req.user.id);
+    const result = await this.messageService.addReaction(
+      messageReactionDto,
+      req.user.id,
+    );
+
+    // Broadcast reaction update via websocket
+    this.chatGateway.sendToChannel(result.channelId, 'reaction_updated', {
+      messageId: messageReactionDto.messageId,
+      emoji: messageReactionDto.emoji,
+      userId: req.user.id,
+      action: 'toggle',
+    });
   }
 
   @Post('channel/:channelId/mark-read')

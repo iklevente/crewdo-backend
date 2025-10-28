@@ -184,7 +184,12 @@ export class ChatGateway
       }
       this.userChannels.get(client.userId!)!.add(data.channelId);
 
-      this.logger.log(`User ${client.userId} joined channel ${data.channelId}`);
+      const roomSize =
+        this.server.sockets.adapter.rooms.get(`channel_${data.channelId}`)
+          ?.size ?? 0;
+      this.logger.log(
+        `User ${client.userId} joined channel ${data.channelId}. Room now has ${roomSize} members.`,
+      );
 
       // Notify channel members that user joined
       client.to(`channel_${data.channelId}`).emit('user_joined_channel', {
@@ -233,10 +238,20 @@ export class ChatGateway
         client.userId!,
       );
 
-      // Broadcast message to all channel members
-      this.server
-        .to(`channel_${createMessageDto.channelId}`)
-        .emit('new_message', message);
+      const roomName = `channel_${createMessageDto.channelId}`;
+      const room = this.server.sockets.adapter.rooms.get(roomName);
+      const roomSize = room?.size ?? 0;
+      const roomMembers = room ? Array.from(room) : [];
+
+      this.logger.log(
+        `Broadcasting new_message to room ${roomName} with ${roomSize} members: ${roomMembers.join(', ')}`,
+      );
+      this.logger.log(`Message content: "${message.content}"`);
+
+      // Broadcast message to all channel members INCLUDING the sender
+      this.server.in(roomName).emit('new_message', message);
+
+      this.logger.log(`Event emitted to ${roomName}`);
 
       // Send typing stopped event
       client

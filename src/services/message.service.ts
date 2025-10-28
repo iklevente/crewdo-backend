@@ -424,7 +424,7 @@ export class MessageService {
   async addReaction(
     messageReactionDto: MessageReactionDto,
     userId: string,
-  ): Promise<void> {
+  ): Promise<{ channelId: string }> {
     const message = await this.messageRepository.findOne({
       where: { id: messageReactionDto.messageId },
       relations: ['channel', 'channel.members', 'reactions', 'reactions.user'],
@@ -464,6 +464,8 @@ export class MessageService {
       });
       await this.messageReactionRepository.save(reaction);
     }
+
+    return { channelId: message.channel.id };
   }
 
   async search(
