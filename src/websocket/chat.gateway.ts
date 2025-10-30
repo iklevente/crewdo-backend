@@ -64,6 +64,7 @@ export class ChatGateway
   constructor(
     private messageService: MessageService,
     private jwtService: JwtService,
+    @Inject(forwardRef(() => ChannelService))
     private channelService: ChannelService,
     private presenceService: PresenceService,
     @Inject(forwardRef(() => NotificationService))
@@ -233,7 +234,7 @@ export class ChatGateway
       this.userChannels.get(client.userId!)!.add(data.channelId);
 
       const roomSize =
-        this.server.sockets.adapter.rooms.get(`channel_${data.channelId}`)
+        this.server?.sockets?.adapter?.rooms?.get(`channel_${data.channelId}`)
           ?.size ?? 0;
       this.logger.log(
         `User ${client.userId} joined channel ${data.channelId}. Room now has ${roomSize} members.`,
@@ -287,7 +288,7 @@ export class ChatGateway
       );
 
       const roomName = `channel_${createMessageDto.channelId}`;
-      const room = this.server.sockets.adapter.rooms.get(roomName);
+      const room = this.server?.sockets?.adapter?.rooms?.get(roomName);
       const roomSize = room?.size ?? 0;
       const roomMembers = room ? Array.from(room) : [];
 
@@ -432,7 +433,7 @@ export class ChatGateway
     });
 
     // Send existing participants to new user
-    const callRoom = this.server.sockets.adapter.rooms.get(
+    const callRoom = this.server?.sockets?.adapter?.rooms?.get(
       `call_${data.callId}`,
     );
     if (callRoom) {
@@ -717,6 +718,24 @@ export class ChatGateway
     this.logger.log(
       `Broadcasting ${event} to ${uniqueRecipients.size} recipients: ${Array.from(uniqueRecipients).join(', ')}`,
     );
+    uniqueRecipients.forEach((userId) => {
+      this.sendToUser(userId, event, payload);
+    });
+  }
+
+  public broadcastToUsers(
+    event: string,
+    payload: unknown,
+    recipients: Iterable<string>,
+  ): void {
+    const uniqueRecipients = new Set(
+      Array.from(recipients || []).filter((userId) => Boolean(userId)),
+    );
+
+    if (uniqueRecipients.size === 0) {
+      return;
+    }
+
     uniqueRecipients.forEach((userId) => {
       this.sendToUser(userId, event, payload);
     });

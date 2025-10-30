@@ -93,8 +93,17 @@ export class WorkspaceService {
 
     await this.channelRepository.save(generalChannel);
 
+    const hydratedWorkspace = await this.workspaceRepository.findOne({
+      where: { id: savedWorkspace.id },
+      relations: ['owner', 'members'],
+    });
+
+    if (hydratedWorkspace) {
+      this.broadcastWorkspaceEvent('workspace_created', hydratedWorkspace);
+    }
+
     return await this.formatWorkspaceResponse(
-      savedWorkspace,
+      hydratedWorkspace ?? savedWorkspace,
       ownerId,
       owner.role,
     );
@@ -189,6 +198,8 @@ export class WorkspaceService {
     Object.assign(workspace, updateWorkspaceDto);
     const updatedWorkspace = await this.workspaceRepository.save(workspace);
 
+    this.broadcastWorkspaceEvent('workspace_updated', updatedWorkspace);
+
     return await this.formatWorkspaceResponse(
       updatedWorkspace,
       userId,
@@ -199,7 +210,7 @@ export class WorkspaceService {
   async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
     const workspace = await this.workspaceRepository.findOne({
       where: { id },
-      relations: ['owner'],
+      relations: ['owner', 'members'],
     });
 
     if (!workspace) {
@@ -240,7 +251,17 @@ export class WorkspaceService {
     await this.channelRepository.delete({ workspaceId: id });
 
     // 5. Finally delete the workspace
+    const recipients = this.getWorkspaceRecipientIds(workspace);
+
     await this.workspaceRepository.remove(workspace);
+
+    if (recipients.length > 0) {
+      this.chatGateway.broadcastToUsers(
+        'workspace_deleted',
+        { workspaceId: id },
+        recipients,
+      );
+    }
   }
 
   async addMember(
@@ -297,6 +318,8 @@ export class WorkspaceService {
     if (generalChannel) {
       generalChannel.members.push(user);
       await this.channelRepository.save(generalChannel);
+
+      this.broadcastChannelUpdateFromWorkspace(generalChannel, workspace);
     }
 
     this.notifyWorkspaceMembers(workspace, 'workspace_member_added', {
@@ -307,6 +330,13 @@ export class WorkspaceService {
         lastName: user.lastName,
         email: user.email,
       },
+    });
+
+    this.broadcastWorkspaceEvent('workspace_updated', workspace);
+
+    // Explicitly notify the new member to refresh their workspace list
+    this.chatGateway.sendToUser(user.id, 'workspace_created', {
+      workspaceId,
     });
   }
 
@@ -356,11 +386,26 @@ export class WorkspaceService {
         (member) => member.id !== userId,
       );
       await this.channelRepository.save(channel);
+
+      this.broadcastChannelUpdateFromWorkspace(channel, workspace);
+
+      if (channel.id) {
+        this.chatGateway.sendToUser(userId, 'channel_deleted', {
+          channelId: channel.id,
+          workspaceId,
+        });
+      }
     }
 
     this.notifyWorkspaceMembers(workspace, 'workspace_member_removed', {
       workspaceId,
       memberId: userId,
+    });
+
+    this.broadcastWorkspaceEvent('workspace_updated', workspace);
+
+    this.chatGateway.sendToUser(userId, 'workspace_deleted', {
+      workspaceId,
     });
   }
 
@@ -441,7 +486,13 @@ export class WorkspaceService {
     viewerRole: UserRole,
   ): Promise<WorkspaceResponseDto> {
     const channels = (workspace.channels as Channel[] | undefined) || [];
+
     const visibleChannels = channels.filter((channel) => {
+      // Filter out archived channels
+      if (channel.isArchived) {
+        return false;
+      }
+
       if (!viewerId) {
         return true;
       }
@@ -451,8 +502,12 @@ export class WorkspaceService {
       if (channel.visibility !== ChannelVisibility.PRIVATE) {
         return true;
       }
+
+      // Private channel - check membership
       const members = (channel.members as User[] | undefined) || [];
-      return members.some((member) => member.id === viewerId);
+      const isMember = members.some((member) => member.id === viewerId);
+
+      return isMember;
     });
 
     const unreadCounts = await this.getUnreadCountsForChannels(
@@ -602,6 +657,14 @@ export class WorkspaceService {
     event: string,
     payload: Record<string, any>,
   ) {
+    const recipients = this.getWorkspaceRecipientIds(workspace);
+
+    recipients.forEach((userId) => {
+      this.chatGateway.sendToUser(userId, event, payload);
+    });
+  }
+
+  private getWorkspaceRecipientIds(workspace: Workspace): string[] {
     const recipients = new Set<string>();
 
     if (workspace.owner?.id) {
@@ -609,13 +672,60 @@ export class WorkspaceService {
     }
 
     workspace.members?.forEach((member) => {
-      if (member.id) {
+      if (member?.id) {
         recipients.add(member.id);
       }
     });
 
-    recipients.forEach((userId) => {
-      this.chatGateway.sendToUser(userId, event, payload);
+    return Array.from(recipients);
+  }
+
+  private broadcastWorkspaceEvent(event: string, workspace: Workspace) {
+    const recipients = this.getWorkspaceRecipientIds(workspace);
+
+    if (recipients.length === 0) {
+      return;
+    }
+
+    this.chatGateway.broadcastToUsers(
+      event,
+      { workspaceId: workspace.id },
+      recipients,
+    );
+  }
+
+  private broadcastChannelUpdateFromWorkspace(
+    channel: Channel,
+    workspace: Workspace,
+  ): void {
+    if (!channel?.id) {
+      return;
+    }
+
+    const recipients = new Set<string>();
+
+    (channel.members ?? [])
+      .map((member) => member?.id)
+      .filter((value): value is string => Boolean(value))
+      .forEach((memberId) => recipients.add(memberId));
+
+    this.getWorkspaceRecipientIds(workspace).forEach((memberId) => {
+      if (memberId) {
+        recipients.add(memberId);
+      }
     });
+
+    if (recipients.size === 0) {
+      return;
+    }
+
+    this.chatGateway.broadcastToUsers(
+      'channel_updated',
+      {
+        channelId: channel.id,
+        workspaceId: workspace.id,
+      },
+      recipients,
+    );
   }
 }

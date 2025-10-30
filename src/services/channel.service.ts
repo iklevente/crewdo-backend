@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
   Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { Repository, DataSource, In } from 'typeorm';
 import {
@@ -23,6 +24,7 @@ import {
   UpdateChannelDto,
   ChannelResponseDto,
 } from '../dto/channel.dto';
+import { ChatGateway } from '../websocket/chat.gateway';
 
 @Injectable()
 export class ChannelService {
@@ -36,6 +38,8 @@ export class ChannelService {
   constructor(
     @Inject('DATA_SOURCE')
     private dataSource: DataSource,
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
   ) {
     this.channelRepository = this.dataSource.getRepository(Channel);
     this.userRepository = this.dataSource.getRepository(User);
@@ -62,7 +66,7 @@ export class ChannelService {
     if (createChannelDto.workspaceId) {
       workspace = await this.workspaceRepository.findOne({
         where: { id: createChannelDto.workspaceId },
-        relations: ['owner'],
+        relations: ['owner', 'members'],
       });
 
       if (!workspace) {
@@ -106,6 +110,12 @@ export class ChannelService {
     }
 
     const savedChannel = await this.channelRepository.save(channel);
+
+    await this.emitChannelEvent('channel_created', savedChannel, {
+      channelId: savedChannel.id,
+      workspaceId: savedChannel.workspaceId ?? null,
+    });
+
     return this.formatChannelResponse(savedChannel, userId);
   }
 
@@ -197,6 +207,12 @@ export class ChannelService {
     });
 
     const savedChannel = await this.channelRepository.save(channel);
+
+    await this.emitChannelEvent('channel_created', savedChannel, {
+      channelId: savedChannel.id,
+      workspaceId: savedChannel.workspaceId ?? null,
+    });
+
     return this.formatChannelResponse(savedChannel, userId);
   }
 
@@ -211,7 +227,7 @@ export class ChannelService {
         throw new Error('Workspace ID is required');
       }
 
-      // Simplified query to avoid complex joins that might fail
+      // Build query to get channels with proper private channel filtering
       const queryBuilder = this.channelRepository
         .createQueryBuilder('channel')
         .leftJoinAndSelect('channel.members', 'members')
@@ -220,11 +236,13 @@ export class ChannelService {
         .andWhere('channel.isArchived = :isArchived', { isArchived: false });
 
       if (userRole !== UserRole.ADMIN) {
+        // For non-admins: show public channels OR private channels where user is a member
         queryBuilder.andWhere(
-          '(members.id = :userId OR channel.visibility = :publicVisibility)',
+          '(channel.visibility = :publicVisibility OR (channel.visibility = :privateVisibility AND members.id = :userId))',
           {
             userId,
             publicVisibility: ChannelVisibility.PUBLIC,
+            privateVisibility: ChannelVisibility.PRIVATE,
           },
         );
       }
@@ -324,7 +342,14 @@ export class ChannelService {
   ): Promise<ChannelResponseDto> {
     const channel = await this.channelRepository.findOne({
       where: { id },
-      relations: ['members', 'creator', 'workspace', 'project'],
+      relations: [
+        'members',
+        'creator',
+        'workspace',
+        'workspace.owner',
+        'workspace.members',
+        'project',
+      ],
     });
 
     if (!channel) {
@@ -373,13 +398,25 @@ export class ChannelService {
     }
 
     const updatedChannel = await this.channelRepository.save(channel);
+
+    await this.emitChannelEvent('channel_updated', updatedChannel, {
+      channelId: updatedChannel.id,
+      workspaceId: updatedChannel.workspaceId ?? null,
+    });
+
     return this.formatChannelResponse(updatedChannel, userId);
   }
 
   async remove(id: string, userId: string, userRole: UserRole): Promise<void> {
     const channel = await this.channelRepository.findOne({
       where: { id },
-      relations: ['creator', 'members'],
+      relations: [
+        'creator',
+        'members',
+        'workspace',
+        'workspace.owner',
+        'workspace.members',
+      ],
     });
 
     if (!channel) {
@@ -398,6 +435,16 @@ export class ChannelService {
         (member) => member.id !== userId,
       );
       await this.channelRepository.save(channel);
+
+      this.chatGateway.sendToUser(userId, 'channel_deleted', {
+        channelId: channel.id,
+        workspaceId: channel.workspaceId ?? null,
+      });
+
+      await this.emitChannelEvent('channel_updated', channel, {
+        channelId: channel.id,
+        workspaceId: channel.workspaceId ?? null,
+      });
       return;
     }
 
@@ -405,6 +452,11 @@ export class ChannelService {
       if (isCreator || isAdmin) {
         channel.isArchived = true;
         await this.channelRepository.save(channel);
+
+        await this.emitChannelEvent('channel_deleted', channel, {
+          channelId: channel.id,
+          workspaceId: channel.workspaceId ?? null,
+        });
         return;
       }
 
@@ -416,6 +468,16 @@ export class ChannelService {
         (member) => member.id !== userId,
       );
       await this.channelRepository.save(channel);
+
+      this.chatGateway.sendToUser(userId, 'channel_deleted', {
+        channelId: channel.id,
+        workspaceId: channel.workspaceId ?? null,
+      });
+
+      await this.emitChannelEvent('channel_updated', channel, {
+        channelId: channel.id,
+        workspaceId: channel.workspaceId ?? null,
+      });
       return;
     }
 
@@ -427,6 +489,11 @@ export class ChannelService {
 
     channel.isArchived = true;
     await this.channelRepository.save(channel);
+
+    await this.emitChannelEvent('channel_deleted', channel, {
+      channelId: channel.id,
+      workspaceId: channel.workspaceId ?? null,
+    });
   }
 
   async addMember(
@@ -437,7 +504,13 @@ export class ChannelService {
   ): Promise<void> {
     const channel = await this.channelRepository.findOne({
       where: { id: channelId },
-      relations: ['members', 'creator', 'workspace', 'workspace.owner'],
+      relations: [
+        'members',
+        'creator',
+        'workspace',
+        'workspace.owner',
+        'workspace.members',
+      ],
     });
 
     if (!channel) {
@@ -472,6 +545,11 @@ export class ChannelService {
 
     channel.members.push(userToAdd);
     await this.channelRepository.save(channel);
+
+    await this.emitChannelEvent('channel_updated', channel, {
+      channelId: channel.id,
+      workspaceId: channel.workspaceId ?? null,
+    });
   }
 
   async removeMember(
@@ -482,7 +560,13 @@ export class ChannelService {
   ): Promise<void> {
     const channel = await this.channelRepository.findOne({
       where: { id: channelId },
-      relations: ['members', 'creator', 'workspace', 'workspace.owner'],
+      relations: [
+        'members',
+        'creator',
+        'workspace',
+        'workspace.owner',
+        'workspace.members',
+      ],
     });
 
     if (!channel) {
@@ -505,6 +589,16 @@ export class ChannelService {
 
     channel.members = channel.members.filter((member) => member.id !== userId);
     await this.channelRepository.save(channel);
+
+    this.chatGateway.sendToUser(userId, 'channel_deleted', {
+      channelId: channel.id,
+      workspaceId: channel.workspaceId ?? null,
+    });
+
+    await this.emitChannelEvent('channel_updated', channel, {
+      channelId: channel.id,
+      workspaceId: channel.workspaceId ?? null,
+    });
   }
 
   /**
@@ -748,5 +842,102 @@ export class ChannelService {
       );
       throw error;
     }
+  }
+
+  private async emitChannelEvent(
+    event: string,
+    channel: Channel,
+    payload: Record<string, unknown>,
+    extraRecipients: Iterable<string> = [],
+  ): Promise<void> {
+    const recipients = await this.buildChannelRecipients(
+      channel,
+      extraRecipients,
+    );
+
+    if (recipients.length === 0) {
+      console.warn(
+        `[ChannelService] No recipients found for ${event} on channel ${channel.id}`,
+      );
+      return;
+    }
+
+    console.log(
+      `[ChannelService] Emitting ${event} for channel ${channel.id} to ${recipients.length} recipients:`,
+      recipients,
+    );
+    this.chatGateway.broadcastToUsers(event, payload, recipients);
+  }
+
+  private async buildChannelRecipients(
+    channel: Channel,
+    extraRecipients: Iterable<string> = [],
+  ): Promise<string[]> {
+    const recipients = new Set<string>();
+
+    let members = channel.members as User[] | undefined;
+
+    if (!members || members.length === 0) {
+      const reloaded = await this.channelRepository.findOne({
+        where: { id: channel.id },
+        relations: ['members'],
+      });
+      members = reloaded?.members || [];
+    }
+
+    console.log(
+      `[ChannelService] Building recipients for channel ${channel.id}: ${members?.length ?? 0} channel members`,
+    );
+
+    members
+      ?.map((member) => member?.id)
+      .filter((value): value is string => Boolean(value))
+      .forEach((memberId) => recipients.add(memberId));
+
+    for (const extra of extraRecipients || []) {
+      if (extra) {
+        recipients.add(extra);
+      }
+    }
+
+    if (channel.workspaceId) {
+      console.log(
+        `[ChannelService] Channel ${channel.id} belongs to workspace ${channel.workspaceId}, fetching workspace members`,
+      );
+      const workspaceMemberIds = await this.getWorkspaceMemberIds(
+        channel.workspaceId,
+      );
+      console.log(
+        `[ChannelService] Found ${workspaceMemberIds.length} workspace members`,
+      );
+      workspaceMemberIds.forEach((id) => recipients.add(id));
+    }
+
+    return Array.from(recipients);
+  }
+
+  private async getWorkspaceMemberIds(workspaceId: string): Promise<string[]> {
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: workspaceId },
+      relations: ['owner', 'members'],
+    });
+
+    if (!workspace) {
+      return [];
+    }
+
+    const recipients = new Set<string>();
+
+    if (workspace.owner?.id) {
+      recipients.add(workspace.owner.id);
+    }
+
+    workspace.members?.forEach((member) => {
+      if (member?.id) {
+        recipients.add(member.id);
+      }
+    });
+
+    return Array.from(recipients);
   }
 }
