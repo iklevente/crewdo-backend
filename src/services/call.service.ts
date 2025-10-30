@@ -390,8 +390,20 @@ export class CallService implements OnModuleInit {
     await this.ensureLivekitRoom(callWithSettings);
 
     const hydratedCall = await this.getCallWithRelations(callWithSettings.id);
+    const callResponse = this.formatCallResponse(hydratedCall);
+
     await this.emitCallUpdate(hydratedCall);
-    return this.formatCallResponse(hydratedCall);
+
+    // Send incoming_call event to each invited user
+    try {
+      for (const user of invitedUsers) {
+        this.chatGateway.publishIncomingCall(callResponse, user.id);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to send incoming call WebSocket events:', error);
+    }
+
+    return callResponse;
   }
 
   async scheduleCall(

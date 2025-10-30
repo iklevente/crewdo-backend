@@ -695,6 +695,16 @@ export class ChatGateway
     });
   }
 
+  public publishIncomingCall(
+    callData: CallResponseDto,
+    recipientUserId: string,
+  ): void {
+    this.logger.log(
+      `Publishing incoming_call to user ${recipientUserId} for call ${callData.id}`,
+    );
+    this.sendToUser(recipientUserId, 'incoming_call', callData);
+  }
+
   public publishProjectUpdate(
     event: string,
     payload: any,
