@@ -2,17 +2,17 @@ import { IsString, IsUUID } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateCommentDto {
-  @ApiProperty({ example: 'This task is completed and ready for review.' })
+  @ApiProperty()
   @IsString()
   content: string;
 
-  @ApiProperty({ example: 'task-uuid-here' })
+  @ApiProperty()
   @IsUUID()
   taskId: string;
 }
 
 export class UpdateCommentDto {
-  @ApiProperty({ example: 'Updated comment content.' })
+  @ApiProperty()
   @IsString()
   content: string;
 }

@@ -11,13 +11,13 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { MessageService } from '../services/message.service';
-import { ChannelService } from '../services/channel.service';
-import { NotificationService } from '../services/notification.service';
+import { MessageService } from '../messages/message.service';
+import { ChannelService } from '../channels/channel.service';
+import { NotificationService } from '../notifications/notification.service';
 import { CreateMessageDto } from '../dto/message.dto';
 import { PresenceResponseDto } from '../dto/presence.dto';
 import { NotificationResponseDto } from '../dto/notification.dto';
-import { PresenceService } from '../services/presence.service';
+import { PresenceService } from '../presence/presence.service';
 import { PresenceStatus, UserRole } from '../entities';
 import { CallResponseDto } from '../dto/call.dto';
 
@@ -47,10 +47,9 @@ export class ChatGateway
   server: Server;
 
   private readonly logger = new Logger(ChatGateway.name);
-  private connectedUsers = new Map<string, Set<string>>(); // userId -> Set of socketIds
-  private userChannels = new Map<string, Set<string>>(); // userId -> Set of channelIds
-  private isReconcileInProgress = false;
-  private recentlyConnected = new Map<string, number>(); // socketId -> timestamp
+  private connectedUsers = new Map<string, Set<string>>();
+  private userChannels = new Map<string, Set<string>>();
+  private recentlyConnected = new Map<string, number>();
   private pendingEmits: Array<{
     userId: string;
     event: string;
@@ -69,15 +68,12 @@ export class ChatGateway
     private presenceService: PresenceService,
     @Inject(forwardRef(() => NotificationService))
     private notificationService: NotificationService,
-  ) {
-    // DON'T register callback here - server isn't ready yet
-  }
+  ) {}
 
   afterInit(server: Server) {
     this.server = server;
     this.logger.log('WebSocket server initialized');
 
-    // Register callback AFTER server is initialized
     this.notificationService.setNotificationCreatedCallback(
       (userId: string, notification: NotificationResponseDto) => {
         this.sendToUser(userId, 'notification_created', notification);
@@ -132,38 +128,39 @@ export class ChatGateway
         return;
       }
 
-      // Track connected user
+      const hadExistingSockets =
+        this.connectedUsers.has(client.userId) &&
+        this.connectedUsers.get(client.userId)!.size > 0;
+
       if (!this.connectedUsers.has(client.userId)) {
         this.connectedUsers.set(client.userId, new Set());
       }
       this.connectedUsers.get(client.userId)!.add(client.id);
 
-      // Mark socket as recently connected (protect from immediate reconciliation)
       this.recentlyConnected.set(client.id, Date.now());
       setTimeout(() => {
         this.recentlyConnected.delete(client.id);
-      }, 5000); // 5 second grace period
+      }, 5000);
 
       this.logger.log(
         `User ${client.userId} connected with socket ${client.id}. Total connected users: ${this.connectedUsers.size}`,
       );
 
-      // Join user to their channels
       await this.joinUserChannels(client);
 
-      // Broadcast user online status and share snapshot with newly connected user
-      const presence = await this.presenceService.setAutomaticStatus(
-        client.userId,
-        PresenceStatus.ONLINE,
-      );
-      this.publishPresenceUpdate(presence);
+      const wasOffline = !hadExistingSockets;
 
-      await this.sendPresenceSnapshot(client.userId);
+      if (wasOffline) {
+        const presence = await this.presenceService.setAutomaticStatus(
+          client.userId,
+          PresenceStatus.ONLINE,
+        );
+        this.publishPresenceUpdate(presence);
+      }
+
+      await this.sendPresenceSnapshotToSocket(client.id);
 
       this.flushUserPending(client.userId);
-
-      // Don't call reconcileConnections immediately - it can clear newly connected sockets
-      // that aren't yet in server.sockets.sockets map
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -186,10 +183,8 @@ export class ChatGateway
       if (userSockets) {
         userSockets.delete(client.id);
 
-        // Clean up recently connected tracking
         this.recentlyConnected.delete(client.id);
 
-        // If user has no more connections, mark as offline
         if (userSockets.size === 0) {
           this.connectedUsers.delete(client.userId);
           this.userChannels.delete(client.userId);
@@ -205,9 +200,6 @@ export class ChatGateway
         `User ${client.userId} disconnected from socket ${client.id}`,
       );
     }
-
-    // TEMPORARILY DISABLED - reconcileConnections causes race conditions
-    // void this.reconcileConnections();
   }
 
   @SubscribeMessage('join_channel')
@@ -217,17 +209,14 @@ export class ChatGateway
   ) {
     try {
       const userRole = this.resolveUserRole(client);
-      // Verify user has access to channel
       await this.channelService.findOne(
         data.channelId,
         client.userId!,
         userRole,
       );
 
-      // Join socket to channel room
       await client.join(`channel_${data.channelId}`);
 
-      // Track user channels
       if (!this.userChannels.has(client.userId!)) {
         this.userChannels.set(client.userId!, new Set());
       }
@@ -240,7 +229,6 @@ export class ChatGateway
         `User ${client.userId} joined channel ${data.channelId}. Room now has ${roomSize} members.`,
       );
 
-      // Notify channel members that user joined
       client.to(`channel_${data.channelId}`).emit('user_joined_channel', {
         userId: client.userId,
         channelId: data.channelId,
@@ -261,7 +249,6 @@ export class ChatGateway
   ) {
     await client.leave(`channel_${data.channelId}`);
 
-    // Remove from user channels tracking
     const userChannels = this.userChannels.get(client.userId!);
     if (userChannels) {
       userChannels.delete(data.channelId);
@@ -269,7 +256,6 @@ export class ChatGateway
 
     this.logger.log(`User ${client.userId} left channel ${data.channelId}`);
 
-    // Notify channel members that user left
     client.to(`channel_${data.channelId}`).emit('user_left_channel', {
       userId: client.userId,
       channelId: data.channelId,
@@ -297,12 +283,10 @@ export class ChatGateway
       );
       this.logger.log(`Message content: "${message.content}"`);
 
-      // Broadcast message to all channel members INCLUDING the sender
       this.server.in(roomName).emit('new_message', message);
 
       this.logger.log(`Event emitted to ${roomName}`);
 
-      // Send typing stopped event
       client
         .to(`channel_${createMessageDto.channelId}`)
         .emit('typing_stopped', {
@@ -395,13 +379,10 @@ export class ChatGateway
     @MessageBody() data: { channelId: string; type: 'voice' | 'video' },
   ) {
     try {
-      // Create call record in database (would need CallService)
       const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Join call room
       await client.join(`call_${callId}`);
 
-      // Notify channel members about call start
       this.server.to(`channel_${data.channelId}`).emit('call_started', {
         callId,
         channelId: data.channelId,
@@ -425,14 +406,12 @@ export class ChatGateway
   ) {
     await client.join(`call_${data.callId}`);
 
-    // Notify other call participants
     client.to(`call_${data.callId}`).emit('user_joined_call', {
       userId: client.userId,
       user: client.user,
       callId: data.callId,
     });
 
-    // Send existing participants to new user
     const callRoom = this.server?.sockets?.adapter?.rooms?.get(
       `call_${data.callId}`,
     );
@@ -451,7 +430,6 @@ export class ChatGateway
   ) {
     await client.leave(`call_${data.callId}`);
 
-    // Notify other call participants
     client.to(`call_${data.callId}`).emit('user_left_call', {
       userId: client.userId,
       callId: data.callId,
@@ -469,7 +447,6 @@ export class ChatGateway
       type: 'offer' | 'answer' | 'ice-candidate';
     },
   ) {
-    // Forward WebRTC signaling to target user
     const targetSockets = this.connectedUsers.get(data.targetUserId);
     if (targetSockets) {
       targetSockets.forEach((socketId) => {
@@ -489,22 +466,16 @@ export class ChatGateway
     @MessageBody() data: { messageId: string; emoji: string },
   ) {
     try {
-      await this.messageService.addReaction(
+      const { channelId } = await this.messageService.addReaction(
         { messageId: data.messageId, emoji: data.emoji },
         client.userId!,
       );
 
-      // Broadcast reaction update to channel
-      // Would need to get channelId from message
-      // For now, emit to all connected users of the user's channels
-      const userChannels = this.userChannels.get(client.userId!) || new Set();
-      userChannels.forEach((channelId) => {
-        this.server.to(`channel_${channelId}`).emit('reaction_updated', {
-          messageId: data.messageId,
-          emoji: data.emoji,
-          userId: client.userId,
-          action: 'toggle',
-        });
+      this.server.to(`channel_${channelId}`).emit('reaction_updated', {
+        messageId: data.messageId,
+        emoji: data.emoji,
+        userId: client.userId,
+        action: 'toggle',
       });
     } catch (error) {
       client.emit('error', {
@@ -517,7 +488,6 @@ export class ChatGateway
   private async joinUserChannels(client: AuthenticatedSocket) {
     try {
       const userRole = this.resolveUserRole(client);
-      // Get user's DMs
       const dmChannels = await this.channelService.findDirectMessages(
         client.userId!,
         userRole,
@@ -549,15 +519,14 @@ export class ChatGateway
       this.server.to(`channel_${channelId}`).emit('presence_updated', payload);
     });
 
-    // Emit globally so workspace UI stays in sync outside shared channels
     this.server.emit('presence_updated', payload);
   }
 
-  private async sendPresenceSnapshot(userId: string) {
+  private async sendPresenceSnapshotToSocket(socketId: string) {
     const snapshot = await this.presenceService.getAllPresence();
 
-    if (snapshot.length > 0) {
-      this.sendToUser(userId, 'presence_snapshot', snapshot);
+    if (snapshot.length > 0 && this.server) {
+      this.server.to(socketId).emit('presence_snapshot', snapshot);
     }
   }
 
@@ -566,69 +535,6 @@ export class ChatGateway
     return Boolean(sockets && sockets.size > 0);
   }
 
-  private async reconcileConnections() {
-    if (this.isReconcileInProgress) {
-      return;
-    }
-
-    this.isReconcileInProgress = true;
-
-    try {
-      const entries = Array.from(this.connectedUsers.entries());
-
-      for (const [userId, socketIds] of entries) {
-        const activeSocketIds = new Set<string>();
-
-        socketIds.forEach((socketId) => {
-          // Skip recently connected sockets - give them time to fully initialize
-          if (this.recentlyConnected.has(socketId)) {
-            this.logger.debug(
-              `Skipping recently connected socket ${socketId} in reconciliation`,
-            );
-            activeSocketIds.add(socketId);
-            return;
-          }
-
-          if (this.server?.sockets?.sockets?.has(socketId)) {
-            activeSocketIds.add(socketId);
-          }
-        });
-
-        if (activeSocketIds.size === 0) {
-          this.connectedUsers.delete(userId);
-          this.userChannels.delete(userId);
-
-          try {
-            const presence = await this.presenceService.setAutomaticStatus(
-              userId,
-              PresenceStatus.OFFLINE,
-            );
-            this.publishPresenceUpdate(presence);
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            this.logger.warn(
-              `Failed to mark user ${userId} offline during presence sweep: ${message}`,
-            );
-          }
-
-          continue;
-        }
-
-        if (activeSocketIds.size !== socketIds.size) {
-          this.connectedUsers.set(userId, activeSocketIds);
-        }
-      }
-    } catch (error) {
-      this.logger.debug(
-        `Presence reconciliation error: ${error instanceof Error ? error.message : error}`,
-      );
-    } finally {
-      this.isReconcileInProgress = false;
-    }
-  }
-
-  // Method to send message to specific user (for notifications, etc.)
   sendToUser(userId: string, event: string, data: unknown) {
     if (!this.server) {
       this.logger.warn(
@@ -749,7 +655,6 @@ export class ChatGateway
     return UserRole.TEAM_MEMBER;
   }
 
-  // Method to send message to channel
   sendToChannel(channelId: string, event: string, data: any) {
     this.server.to(`channel_${channelId}`).emit(event, data);
   }
@@ -768,13 +673,11 @@ export class ChatGateway
     },
   ) {
     try {
-      // Store quality metrics (in production, would save to database)
       this.logger.log(
         `Quality report from ${client.userId} for call ${data.callId}:`,
         data.metrics,
       );
 
-      // Could emit to call moderator or admin interface
       client.to(`call_${data.callId}`).emit('quality_metrics_updated', {
         userId: client.userId,
         metrics: data.metrics,
@@ -805,7 +708,6 @@ export class ChatGateway
         data.upToMessageId,
       );
 
-      // Broadcast to channel that user has read messages
       client.to(`channel_${data.channelId}`).emit('messages_read', {
         userId: client.userId,
         channelId: data.channelId,

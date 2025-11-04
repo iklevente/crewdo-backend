@@ -153,28 +153,6 @@ export class MessageResponseDto {
     }>;
     userReacted: boolean; // Whether current user reacted with this emoji
   }>;
-
-  @ApiProperty()
-  mentionedUsers: Array<{
-    id: string;
-    firstName: string;
-    lastName: string;
-  }>;
-
-  @ApiPropertyOptional()
-  threadReplies?: Array<{
-    id: string;
-    content: string;
-    author: {
-      id: string;
-      firstName: string;
-      lastName: string;
-    };
-    createdAt: Date;
-  }>;
-
-  @ApiPropertyOptional()
-  threadCount?: number;
 }
 
 export class MessageSearchDto {

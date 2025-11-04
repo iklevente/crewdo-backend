@@ -66,7 +66,6 @@ export class Channel {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'creatorId' })
   creator: User;
@@ -85,7 +84,6 @@ export class Channel {
   @OneToMany(() => Message, (message) => message.channel)
   messages: Message[];
 
-  // For project-integrated channels
   @ManyToOne(() => Project, { nullable: true })
   @JoinColumn({ name: 'projectId' })
   project: Project;
@@ -93,7 +91,6 @@ export class Channel {
   @Column('uuid', { nullable: true })
   projectId: string | null;
 
-  // Workspace relationship
   @ManyToOne(() => Workspace, { nullable: true })
   @JoinColumn({ name: 'workspaceId' })
   workspace: Workspace;

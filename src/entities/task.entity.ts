@@ -62,10 +62,10 @@ export class Task {
   actualHours: number;
 
   @Column('text', { nullable: true })
-  tags: string; // JSON string of array for MSSQL compatibility
+  tags: string;
 
   @Column({ nullable: true })
-  position: number; // For ordering within project
+  position: number;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -73,7 +73,6 @@ export class Task {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => Project, (project) => project.tasks)
   @JoinColumn({ name: 'projectId' })
   project: Project;

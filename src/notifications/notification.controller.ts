@@ -20,8 +20,8 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { NotificationService } from '../services/notification.service';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { NotificationService } from './notification.service';
+import { ChatGateway } from '../realtime/chat.gateway';
 import {
   CreateNotificationDto,
   UpdateNotificationDto,
@@ -62,7 +62,6 @@ export class NotificationController {
       createNotificationDto,
     );
 
-    // Broadcast to the user who received the notification
     this.chatGateway.sendToUser(
       createNotificationDto.userId,
       'notification_created',
@@ -106,7 +105,6 @@ export class NotificationController {
     total: number;
     unreadCount: number;
   }> {
-    // Allow users to access their own notifications or admins to access any notifications
     if (userId !== req.user.id && req.user.role !== 'admin') {
       throw new ForbiddenException(
         'You can only access your own notifications unless you are an admin',
@@ -131,7 +129,6 @@ export class NotificationController {
     @Param('userId', ParseUUIDPipe) userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<{ count: number }> {
-    // Allow users to access their own unread count or admins to access any count
     if (userId !== req.user.id && req.user.role !== 'admin') {
       throw new ForbiddenException(
         'You can only access your own notification count unless you are an admin',
@@ -224,7 +221,6 @@ export class NotificationController {
       req.user.id,
     );
 
-    // Broadcast to the user
     this.chatGateway.sendToUser(
       req.user.id,
       'notification_updated',
@@ -252,7 +248,6 @@ export class NotificationController {
     @Param('userId', ParseUUIDPipe) userId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<{ markedCount: number }> {
-    // Allow users to mark their own notifications as read or admins to mark any notifications
     if (userId !== req.user.id && req.user.role !== 'admin') {
       throw new ForbiddenException(
         'You can only mark your own notifications as read unless you are an admin',
@@ -263,7 +258,6 @@ export class NotificationController {
       req.user.id,
     );
 
-    // Broadcast to the user
     this.chatGateway.sendToUser(userId, 'notifications_marked_read', {
       markedCount,
     });
@@ -287,7 +281,6 @@ export class NotificationController {
       req.user.id,
     );
 
-    // Broadcast to the user
     this.chatGateway.sendToUser(req.user.id, 'notifications_marked_read', {
       markedCount,
     });
@@ -308,7 +301,6 @@ export class NotificationController {
   ): Promise<{ message: string }> {
     await this.notificationService.deleteNotification(id, req.user.id);
 
-    // Broadcast to the user
     this.chatGateway.sendToUser(req.user.id, 'notification_deleted', { id });
 
     return { message: 'Notification deleted successfully' };

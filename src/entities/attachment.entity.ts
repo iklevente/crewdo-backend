@@ -28,7 +28,7 @@ export class Attachment {
   originalName: string;
 
   @Column()
-  fileName: string; // Stored file name
+  fileName: string;
 
   @Column()
   filePath: string;
@@ -48,7 +48,6 @@ export class Attachment {
   @CreateDateColumn()
   uploadedAt: Date;
 
-  // Relations
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'uploadedById' })
   uploadedBy: User;

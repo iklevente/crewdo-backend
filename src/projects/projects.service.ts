@@ -5,19 +5,20 @@ import {
   Inject,
 } from '@nestjs/common';
 import { Repository, DataSource, In } from 'typeorm';
-import { Project, User, UserRole, Task } from '../entities';
+import { Project, User, UserRole, Task, Comment } from '../entities';
 import {
   CreateProjectDto,
   UpdateProjectDto,
   AddProjectMembersDto,
 } from '../dto/project.dto';
-import { NotificationService } from '../services/notification.service';
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class ProjectsService {
   private projectRepository: Repository<Project>;
   private userRepository: Repository<User>;
   private taskRepository: Repository<Task>;
+  private commentRepository: Repository<Comment>;
 
   constructor(
     @Inject('DATA_SOURCE')
@@ -27,6 +28,7 @@ export class ProjectsService {
     this.projectRepository = this.dataSource.getRepository(Project);
     this.userRepository = this.dataSource.getRepository(User);
     this.taskRepository = this.dataSource.getRepository(Task);
+    this.commentRepository = this.dataSource.getRepository(Comment);
   }
 
   async create(
@@ -176,10 +178,18 @@ export class ProjectsService {
       throw new ForbiddenException('You can only delete your own projects');
     }
 
-    // First delete all tasks associated with this project
+    const tasks = await this.taskRepository.find({
+      where: { projectId: id },
+      select: ['id'],
+    });
+    const taskIds = tasks.map((task) => task.id);
+
+    if (taskIds.length > 0) {
+      await this.commentRepository.delete({ taskId: In(taskIds) });
+    }
+
     await this.taskRepository.delete({ projectId: id });
 
-    // Then delete the project itself
     await this.projectRepository.delete(id);
   }
 

@@ -42,7 +42,10 @@ export class AttachmentService {
     this.taskRepository = this.dataSource.getRepository(Task);
     this.projectRepository = this.dataSource.getRepository(Project);
     this.messageRepository = this.dataSource.getRepository(Message);
-    this.uploadsPath = this.configService.get('UPLOADS_PATH') || './uploads';
+    this.uploadsPath = this.configService.get<string>(
+      'upload.uploadPath',
+      './uploads',
+    );
     void this.ensureUploadsDirectory();
   }
 
@@ -466,8 +469,10 @@ export class AttachmentService {
   private formatAttachmentResponse(
     attachment: Attachment,
   ): AttachmentResponseDto {
-    const baseUrl =
-      this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+    const baseUrl = this.configService.get<string>(
+      'baseUrl',
+      'http://localhost:3000',
+    );
     return {
       id: attachment.id,
       originalName: attachment.originalName,

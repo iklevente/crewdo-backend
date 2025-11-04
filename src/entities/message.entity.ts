@@ -57,7 +57,6 @@ export class Message {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => User)
   @JoinColumn({ name: 'authorId' })
   author: User;

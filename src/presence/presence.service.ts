@@ -89,7 +89,6 @@ export class PresenceService {
   }
 
   async upsertPresenceSnapshot(entries: PresenceResponseDto[]): Promise<void> {
-    // Utility to hydrate presence records from external snapshots if needed.
     if (!entries.length) {
       return;
     }

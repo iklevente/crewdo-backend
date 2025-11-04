@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { User } from '../entities';
-import { PresenceService } from '../services/presence.service';
+import { PresenceService } from '../presence/presence.service';
 import { PresenceStatus } from '../entities/presence.entity';
 import { LoginDto, RegisterDto, AuthResponseDto } from '../dto/auth.dto';
 
@@ -48,14 +48,12 @@ export class AuthService {
     // Update last login
     await this.usersService.updateLastLogin(user.id);
 
-    // Ensure presence reflects active session immediately
     try {
       await this.presenceService.setAutomaticStatus(
         user.id,
         PresenceStatus.ONLINE,
       );
     } catch (error) {
-      // Avoid blocking login on presence failures but log for traceability
       console.warn(
         `Failed to set presence online for user ${user.id}: ${String(error)}`,
       );
@@ -75,7 +73,6 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    // Check if user already exists
     const existingUser = await this.usersService.findByEmail(registerDto.email);
     if (existingUser) {
       throw new ConflictException('User with this email already exists');
@@ -85,7 +82,6 @@ export class AuthService {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(registerDto.password, saltRounds);
 
-    // Create user
     const userData = {
       ...registerDto,
       password: hashedPassword,
@@ -112,9 +108,18 @@ export class AuthService {
   }
 
   generateRefreshToken(payload: JwtPayload): string {
+    const secret = this.configService.get<string>(
+      'jwt.refreshSecret',
+      'jwt_refresh_secret',
+    );
+    const expiresIn = this.configService.get<string>(
+      'jwt.refreshExpiresIn',
+      '7d',
+    );
+
     return this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET || 'jwt_refresh_secret',
-      expiresIn: '7d',
+      secret,
+      expiresIn,
     });
   }
 
@@ -123,7 +128,10 @@ export class AuthService {
   ): Promise<{ access_token: string } | null> {
     try {
       const payload = this.jwtService.verify<JwtPayload>(refreshToken, {
-        secret: this.configService.get('jwt.refreshSecret'),
+        secret: this.configService.get<string>(
+          'jwt.refreshSecret',
+          'jwt_refresh_secret',
+        ),
       });
 
       const user = await this.usersService.findById(payload.sub);

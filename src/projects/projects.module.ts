@@ -2,11 +2,11 @@ import { Module } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
 import { DatabaseModule } from '../config/database.module';
-import { NotificationModule } from '../modules/notification.module';
-import { ChatModule } from '../modules/chat.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 
 @Module({
-  imports: [DatabaseModule, NotificationModule, ChatModule],
+  imports: [DatabaseModule, NotificationsModule, RealtimeModule],
   controllers: [ProjectsController],
   providers: [ProjectsService],
   exports: [ProjectsService],

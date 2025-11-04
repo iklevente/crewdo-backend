@@ -11,7 +11,6 @@ export {
   PresenceSource,
 } from './presence.entity';
 
-// Chat and Communication entities
 export { Workspace, WorkspaceType } from './workspace.entity';
 export { Channel, ChannelType, ChannelVisibility } from './channel.entity';
 export { Message } from './message.entity';

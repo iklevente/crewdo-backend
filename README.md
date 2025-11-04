@@ -1,243 +1,123 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
-
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
-
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
-
 # Crewdo Backend
 
-A comprehensive team collaboration and project management API built with NestJS, TypeScript, and PostgreSQL.
+Production-ready collaboration backend built with NestJS, TypeScript, WebSockets, and MSSQL. It powers authentication, work management, messaging, presence, real-time notifications, and LiveKit powered voice/video for the Crewdo platform.
 
-## Features
+## Platform Overview
 
-- 🔐 **Authentication & Authorization** - JWT-based auth with role-based access control
-- 👥 **User Management** - Complete user CRUD with roles (Admin, Project Manager, Team Member, Client)
-- 📋 **Project Management** - Create, manage, and collaborate on projects
-- ✅ **Task Management** - Full task lifecycle with assignments, priorities, and status tracking
-- 💬 **Comments System** - Task-based commenting and collaboration
-- 📁 **File Attachments** - Upload and manage project/task files
-- 🔔 **Notifications** - Real-time notification system
-- 📊 **Rich API Documentation** - Auto-generated Swagger/OpenAPI docs
-- 🛡️ **Security** - Input validation, CORS, and secure authentication
-- 🏗️ **Type Safety** - Full TypeScript implementation with strict typing
+- **Authentication and Identity**: Local email/password auth with JWT access and refresh tokens, role-aware guards, and presence tracking on login.
+- **Work Management**: Projects, tasks, comments, and attachments exposed through modular REST controllers with validation and DTOs.
+- **Real-time Collaboration**: Socket.IO gateway for chat, presence, and notifications; LiveKit integration for calls and screen sharing.
+- **Files and Static Assets**: Multi-tenant attachment storage on disk, served via static middleware with configurable root.
+- **API Tooling**: Swagger UI at `/api/docs`, OpenAPI generator scripts, strict TypeScript configuration, linting, and Jest test harness.
 
-## Tech Stack
+## Requirements
 
-- **Framework**: NestJS
-- **Language**: TypeScript
-- **Database**: Microsoft SQL Server with TypeORM
-- **Authentication**: JWT with Passport
-- **Documentation**: Swagger/OpenAPI
-- **Validation**: class-validator
-- **File Upload**: Multer
-- **Environment**: dotenv
+- Node.js 20+
+- Docker Desktop or Docker Engine
+- npm 11+ (bundled with Node 20)
+- Optional: DB manager such as DBeaver for MSSQL administration
 
-## Quick Start
+## Environment Configuration
 
-### Prerequisites
-
-- Node.js (v16 or higher)
-- Microsoft SQL Server (accessible at localhost:1434)
-- npm or yarn
-
-### Installation
-
-1. **Clone the repository**
+1. Copy the template environment file and edit it as needed:
 
    ```bash
-   git clone <repository-url>
-   cd crewdo-backend
+   cp .env.dist .env
    ```
 
-2. **Install dependencies**
+2. Review `.env` and ensure the following values reflect your local setup:
+   - `PORT` and `BASE_URL` for the API server
+   - `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME` for MSSQL access
+   - `JWT_SECRET`, `JWT_REFRESH_SECRET`, and expiration settings
+   - `CORS_ORIGIN` whitelisted frontend origin
+   - `UPLOAD_PATH` for local disk attachments
+   - `LIVEKIT_*` credentials pointing at your LiveKit instance
+
+All configuration values are consumed through `@nestjs/config` and default to the values defined in `src/config/configuration.ts` when nothing is provided.
+
+## Local Services
+
+### LiveKit (media server)
+
+Run a local LiveKit dev server with Docker:
+
+```bash
+docker run -it \
+  -p 7880:7880 -p 7881:7881 -p 7882:7882 -p 7883:7883 \
+  livekit/livekit-server:master --dev --bind 0.0.0.0
+```
+
+Keep this container running while using Crewdo for calls or screen sharing. The default `.env.dist` already references the exposed ports.
+
+### Microsoft SQL Server
+
+Launch a local MSSQL instance and create the application database:
+
+```bash
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=yourStrong(!)Password" \
+  -p 1434:1433 -d mcr.microsoft.com/mssql/server:2022-latest
+```
+
+Once the container is healthy, connect with a DB tool such as DBeaver using:
+
+- Host: `localhost`
+- Port: `1434`
+- User: `sa`
+- Password: `yourStrong(!)Password`
+
+Create the database:
+
+```sql
+CREATE DATABASE crewdo_backend;
+```
+
+Update `.env` if you change credentials or port mappings.
+
+## Installation and Startup
+
+1. Install dependencies:
 
    ```bash
    npm install
    ```
 
-3. **Set up environment variables**
+2. Compile TypeScript (optional, on-demand build):
 
    ```bash
-   cp .env.example .env
-   # Edit .env with your database credentials and other configuration
+   npm run build
    ```
 
-4. **Ensure your MSSQL database exists**
-
-   ```sql
-   -- Connect to your MSSQL server and create the database if it doesn't exist
-   CREATE DATABASE crewdo_backend;
-   ```
-
-5. **Run database migrations and seed data**
+3. Start the API (defaults to `http://localhost:3000`):
 
    ```bash
-   npm run seed
+   npm run start
    ```
 
-6. **Start the development server**
-   ```bash
-   npm run start:dev
-   ```
+   Use `npm run start:dev` for watch mode during development.
 
-The API will be available at `http://localhost:3000/api`
+4. Open Swagger docs at `http://localhost:3000/api/docs` for endpoint exploration.
 
-## API Documentation
+## Project Structure
 
-Once the server is running, visit `http://localhost:3000/api/docs` for interactive API documentation.
+- `src/app.module.ts` wires global configuration, database connections, and feature modules.
+- `src/config/configuration.ts` centralizes typed configuration defaults consumed by `ConfigService`.
+- `src/modules/chat.module.ts` coordinates the WebSocket gateway, LiveKit service, and message-related controllers.
+- `src/services/*` holds domain services (attachments, notifications, presence, live calls, etc.).
+- `src/controllers/*` exposes REST resources with DTO validation and guards.
+- `src/entities/*` and `src/dto/*` define TypeORM models and request/response shapes.
+- `src/scripts/` includes ad-hoc scripts like seeders.
 
-## Default Users
+## Notable Capabilities
 
-After running the seed script, you can log in with these default accounts:
+- **Authentication**: Local strategy with bcrypt hashing, refresh tokens, and JWT strategies delegated to `ConfigService` driven secrets.
+- **Presence and Messaging**: WebSocket gateway updates online status, broadcasts channel events, and integrates with notification service.
+- **Attachments**: Disk-backed storage with configurable root path, per-entity access guards, and signed download URLs.
+- **Calls**: LiveKit service wraps the server SDK to provision rooms and generate participant tokens with role-based permissions.
+- **Observability**: Structured logging, validation pipes, and consistent error handling across modules.
 
-- **Admin**: `admin@crewdo.com` / `admin123`
-- **Project Manager**: `pm@crewdo.com` / `pm123`
-- **Team Member**: `member@crewdo.com` / `member123`
+## Common Tasks
 
-## API Endpoints
-
-### Authentication
-
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/refresh` - Refresh token
-- `GET /api/auth/profile` - Get current user profile
-
-### Users
-
-- `GET /api/users` - Get all users
-- `GET /api/users/me` - Get current user profile
-- `PATCH /api/users/me` - Update current user profile
-- `PATCH /api/users/me/password` - Change password
-- `GET /api/users/search` - Search users
-- `GET /api/users/:id` - Get user by ID
-- `PATCH /api/users/:id` - Update user (Admin only)
-- `DELETE /api/users/:id` - Delete user (Admin only)
-
-### Projects
-
-- `POST /api/projects` - Create project
-- `GET /api/projects` - Get accessible projects
-- `GET /api/projects/:id` - Get project details
-- `PATCH /api/projects/:id` - Update project
-- `DELETE /api/projects/:id` - Delete project
-- `PATCH /api/projects/:id/members` - Add project members
-- `DELETE /api/projects/:id/members/:memberId` - Remove project member
-
-### Tasks
-
-- `POST /api/tasks` - Create task
-- `GET /api/tasks` - Get accessible tasks
-- `GET /api/tasks/my-tasks` - Get user's assigned/created tasks
-- `GET /api/tasks/:id` - Get task details
-- `PATCH /api/tasks/:id` - Update task
-- `DELETE /api/tasks/:id` - Delete task
-- `PATCH /api/tasks/:id/position` - Update task position
-
-## Environment Variables
-
-Create a `.env` file based on `.env.example`:
-
-```env
-# Server Configuration
-PORT=3000
-NODE_ENV=development
-
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=password
-DB_NAME=crewdo
-
-# JWT Configuration
-JWT_SECRET=your-super-secret-jwt-key-here
-JWT_EXPIRES_IN=1d
-JWT_REFRESH_SECRET=your-super-secret-refresh-key-here
-JWT_REFRESH_EXPIRES_IN=7d
-
-# CORS Configuration
-CORS_ORIGIN=http://localhost:3001
-```
-
-## Scripts
-
-```bash
-# Development
-npm run start:dev        # Start with hot reload
-npm run start:debug      # Start in debug mode
-
-# Production
-npm run build           # Build the project
-npm run start:prod      # Start production server
-
-# Database
-npm run seed           # Seed database with initial data
-
-# Testing
-npm run test           # Run unit tests
-npm run test:e2e       # Run e2e tests
-npm run test:cov       # Run tests with coverage
-
-# Code Quality
-npm run lint           # Run ESLint
-npm run format         # Format code with Prettier
-```
-
-## Database Schema
-
-The application uses the following main entities:
-
-- **User** - User accounts with roles and profiles
-- **Project** - Projects with owners and members
-- **Task** - Tasks within projects with assignments and tracking
-- **Comment** - Comments on tasks for collaboration
-- **Notification** - System notifications for users
-- **Attachment** - File attachments for projects and tasks
-
-## Security Features
-
-- JWT token-based authentication
-- Role-based access control (RBAC)
-- Password hashing with bcrypt
-- Input validation and sanitization
-- CORS protection
-- SQL injection prevention with TypeORM
-- Rate limiting ready (can be added)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## Development Tips
-
-1. **API Testing**: Use the Swagger UI at `/api/docs` for testing endpoints
-2. **Database**: Use TypeORM CLI for migrations and schema changes
-3. **Validation**: All DTOs include validation - check the DTO files for requirements
-4. **Authentication**: Include `Authorization: Bearer <token>` header for protected routes
-5. **Errors**: The API returns consistent error responses with appropriate HTTP status codes
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- `npm run lint` – static analysis (ESLint)
+- `npm run test` – unit tests with Jest
+- `npm run start:prod` – run compiled build from `dist`
+- `npm run generate:client` – regenerate TypeScript API clients from live Swagger schema

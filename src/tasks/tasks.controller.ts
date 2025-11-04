@@ -18,7 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { ChatGateway } from '../realtime/chat.gateway';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CreateTaskDto, UpdateTaskDto, TaskResponseDto } from '../dto/task.dto';

@@ -74,7 +74,6 @@ export class Project {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => User, (user) => user.ownedProjects)
   @JoinColumn({ name: 'ownerId' })
   owner: User;
@@ -93,7 +92,6 @@ export class Project {
   @OneToMany(() => Task, (task) => task.project)
   tasks: Task[];
 
-  // Workspace relationship
   @ManyToOne('Workspace', { nullable: true })
   @JoinColumn({ name: 'workspaceId' })
   workspace: any;

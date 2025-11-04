@@ -30,7 +30,6 @@ export class NotificationService {
     this.userRepository = this.dataSource.getRepository(User);
   }
 
-  // Allow ChatGateway to register a callback for broadcasting
   setNotificationCreatedCallback(
     callback: (userId: string, notification: NotificationResponseDto) => void,
   ): void {
@@ -62,7 +61,6 @@ export class NotificationService {
 
     const response = this.formatNotificationResponse(savedNotification);
 
-    // Trigger callback for WebSocket broadcasting (if registered)
     if (this.onNotificationCreatedCallback) {
       console.log('[NotificationService] Broadcasting notification:', {
         type: response.type,
@@ -91,7 +89,6 @@ export class NotificationService {
     total: number;
     unreadCount: number;
   }> {
-    // Users can only access their own notifications
     if (userId !== currentUserId) {
       throw new ForbiddenException(
         'You can only access your own notifications',
@@ -129,7 +126,6 @@ export class NotificationService {
       .take(limit)
       .getManyAndCount();
 
-    // Get unread count
     const unreadCount = await this.notificationRepository.count({
       where: { userId, isRead: false },
     });
@@ -156,7 +152,6 @@ export class NotificationService {
       throw new NotFoundException('Notification not found');
     }
 
-    // Users can only access their own notifications
     if (notification.user.id !== currentUserId) {
       throw new ForbiddenException(
         'You can only access your own notifications',
@@ -180,7 +175,6 @@ export class NotificationService {
       throw new NotFoundException('Notification not found');
     }
 
-    // Users can only update their own notifications
     if (notification.user.id !== currentUserId) {
       throw new ForbiddenException(
         'You can only update your own notifications',
@@ -198,7 +192,6 @@ export class NotificationService {
   }
 
   async markAllAsRead(userId: string, currentUserId: string): Promise<number> {
-    // Users can only mark their own notifications as read
     if (userId !== currentUserId) {
       throw new ForbiddenException(
         'You can only mark your own notifications as read',
@@ -223,7 +216,6 @@ export class NotificationService {
       throw new NotFoundException('Notification not found');
     }
 
-    // Users can only delete their own notifications
     if (notification.user.id !== currentUserId) {
       throw new ForbiddenException(
         'You can only delete your own notifications',
@@ -234,7 +226,6 @@ export class NotificationService {
   }
 
   async getUnreadCount(userId: string, currentUserId: string): Promise<number> {
-    // Users can only get their own unread count
     if (userId !== currentUserId) {
       throw new ForbiddenException(
         'You can only access your own notification count',
@@ -246,7 +237,6 @@ export class NotificationService {
     });
   }
 
-  // Helper methods for creating specific notification types
   async createTaskAssignedNotification(
     taskId: string,
     taskTitle: string,
@@ -354,7 +344,6 @@ export class NotificationService {
     messageId: string,
     channelName: string,
     replierName: string,
-    originalMessageId: string,
     recipientId: string,
     replyPreview: string,
   ): Promise<NotificationResponseDto> {

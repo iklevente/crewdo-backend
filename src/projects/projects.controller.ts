@@ -18,7 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { ChatGateway } from '../realtime/chat.gateway';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import {
@@ -43,12 +43,6 @@ export class ProjectsController {
     const memberIds = project.members?.map((m) => m.id).filter(Boolean) || [];
     const ownerId = project.ownerId;
     const recipients = ownerId ? [...memberIds, ownerId] : memberIds;
-    console.log('[ProjectsController] getProjectRecipients:', {
-      projectId: project.id,
-      ownerId,
-      memberCount: memberIds.length,
-      recipients,
-    });
     return recipients;
   }
 
@@ -67,13 +61,6 @@ export class ProjectsController {
       createProjectDto,
       user.id,
     );
-
-    console.log('[ProjectsController] create - project returned:', {
-      id: project.id,
-      ownerId: project.ownerId,
-      hasMembersArray: Array.isArray(project.members),
-      memberCount: project.members?.length || 0,
-    });
 
     // Broadcast to all project members and owner
     this.chatGateway.publishProjectUpdate(
@@ -171,13 +158,15 @@ export class ProjectsController {
     // Get project first to know who to notify
     const project = await this.projectsService.findOne(id, user.id, user.role);
 
+    const recipients = this.getProjectRecipients(project);
+
     await this.projectsService.remove(id, user.id, user.role);
 
     // Broadcast deletion to all former members and owner
     this.chatGateway.publishProjectUpdate(
       'project_deleted',
-      { id },
-      this.getProjectRecipients(project),
+      { id, name: project.name },
+      recipients,
     );
 
     return { message: 'Project deleted successfully' };

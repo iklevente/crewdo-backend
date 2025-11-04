@@ -27,7 +27,6 @@ export class Comment {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => User, (user) => user.comments)
   @JoinColumn({ name: 'authorId' })
   author: User;

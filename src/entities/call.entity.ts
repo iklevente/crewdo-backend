@@ -66,7 +66,6 @@ export class Call {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => User)
   @JoinColumn({ name: 'initiatorId' })
   initiator: User;

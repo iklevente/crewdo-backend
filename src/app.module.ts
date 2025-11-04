@@ -10,9 +10,14 @@ import { UsersModule } from './users/users.module';
 import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
 import { CommentsModule } from './comments/comments.module';
-import { ChatModule } from './modules/chat.module';
-import { AttachmentModule } from './modules/attachment.module';
-import { NotificationModule } from './modules/notification.module';
+import { AttachmentsModule } from './attachments/attachments.module';
+import { CallsModule } from './calls/calls.module';
+import { ChannelsModule } from './channels/channels.module';
+import { MessagesModule } from './messages/messages.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { PresenceModule } from './presence/presence.module';
+import { WorkspacesModule } from './workspaces/workspaces.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -31,9 +36,14 @@ import configuration from './config/configuration';
     ProjectsModule,
     TasksModule,
     CommentsModule,
-    ChatModule,
-    AttachmentModule,
-    NotificationModule,
+    AttachmentsModule,
+    CallsModule,
+    ChannelsModule,
+    MessagesModule,
+    NotificationsModule,
+    PresenceModule,
+    WorkspacesModule,
+    RealtimeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

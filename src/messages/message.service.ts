@@ -13,7 +13,7 @@ import {
   MessageReaction,
   Attachment,
   AttachmentType,
-} from '../entities/index';
+} from '../entities';
 import { MessageType } from '../entities/message.entity';
 import {
   CreateMessageDto,
@@ -23,8 +23,8 @@ import {
   MessageSearchDto,
   MessageHistoryDto,
 } from '../dto/message.dto';
-import { AttachmentService } from './attachment.service';
-import { NotificationService } from './notification.service';
+import { AttachmentService } from '../attachments/attachment.service';
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class MessageService {
@@ -68,13 +68,11 @@ export class MessageService {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check if user is member of channel
     const isMember = channel.members.some((member) => member.id === authorId);
     if (!isMember) {
       throw new ForbiddenException('Access denied to this channel');
     }
 
-    // Handle parent message (for threads)
     let replyToMessage: Message | null = null;
     if (createMessageDto.parentMessageId) {
       replyToMessage = await this.messageRepository.findOne({
@@ -90,14 +88,12 @@ export class MessageService {
       }
     }
 
-    // Handle mentioned users - store as array of IDs
     let mentions: string[] = [];
     if (createMessageDto.mentionedUserIds) {
       const mentionedUsers = await this.userRepository.findByIds(
         createMessageDto.mentionedUserIds,
       );
 
-      // Verify mentioned users are channel members
       for (const user of mentionedUsers) {
         const isMentionedUserMember = channel.members.some(
           (member) => member.id === user.id,
@@ -130,22 +126,18 @@ export class MessageService {
       message,
     )) as unknown as Message;
 
-    // Handle attachments if provided
     if (
       createMessageDto.attachmentIds &&
       createMessageDto.attachmentIds.length > 0
     ) {
       for (const attachmentId of createMessageDto.attachmentIds) {
         try {
-          // Verify attachment exists and user has access
           await this.attachmentService.findById(attachmentId, authorId);
 
-          // Associate attachment with message
           await this.attachmentRepository.update(attachmentId, {
             messageId: savedMessage.id,
           });
         } catch (error) {
-          // Log error but don't fail message creation
           console.warn(
             `Failed to attach file ${attachmentId} to message ${savedMessage.id}:`,
             (error as Error).message,
@@ -154,18 +146,15 @@ export class MessageService {
       }
     }
 
-    // Update channel's updated timestamp
     channel.updatedAt = new Date();
     await this.channelRepository.save(channel);
 
-    // Send message notifications
     try {
       const messagePreview =
         createMessageDto.content.length > 50
           ? createMessageDto.content.substring(0, 50) + '...'
           : createMessageDto.content;
 
-      // Get all channel members except the author
       const otherMembers = channel.members.filter(
         (member) => member.id !== authorId,
       );
@@ -176,17 +165,14 @@ export class MessageService {
           replyToMessage.author &&
           replyToMessage.author.id === member.id
         ) {
-          // This is a reply to this member's message
           await this.notificationService.createMessageReplyNotification(
             savedMessage.id,
             channel.name,
             `${author.firstName} ${author.lastName}`,
-            replyToMessage.id,
             member.id,
             messagePreview,
           );
         } else {
-          // Regular message notification
           await this.notificationService.createMessageReceivedNotification(
             savedMessage.id,
             channel.name,
@@ -200,7 +186,6 @@ export class MessageService {
       console.warn('Failed to send message notifications:', error);
     }
 
-    // Reload message with attachments
     const messageWithAttachments = await this.messageRepository.findOne({
       where: { id: savedMessage.id },
       relations: ['author', 'channel', 'attachments'],
@@ -230,7 +215,6 @@ export class MessageService {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check access
     const isMember = channel.members.some((member) => member.id === userId);
     if (!isMember) {
       throw new ForbiddenException('Access denied to this channel');
@@ -251,9 +235,8 @@ export class MessageService {
       .where('message.channelId = :channelId', { channelId })
       .andWhere('message.isDeleted = :isDeleted', { isDeleted: false })
       .orderBy('message.createdAt', order === 'desc' ? 'DESC' : 'ASC')
-      .take(limit + 1); // Take one extra to check if there are more
+      .take(limit + 1);
 
-    // Handle cursor-based pagination
     if (historyDto?.cursor) {
       const cursorMessage = await this.messageRepository.findOne({
         where: { id: historyDto.cursor },
@@ -276,7 +259,7 @@ export class MessageService {
     const hasMore = messages.length > limit;
 
     if (hasMore) {
-      messages.pop(); // Remove the extra message
+      messages.pop();
     }
 
     const nextCursor =
@@ -306,7 +289,6 @@ export class MessageService {
       throw new NotFoundException('Parent message not found');
     }
 
-    // Check access
     const isMember = parentMessage.channel.members.some(
       (member) => member.id === userId,
     );
@@ -346,12 +328,10 @@ export class MessageService {
       throw new NotFoundException('Message not found');
     }
 
-    // Only author can edit message
     if (message.author.id !== userId) {
       throw new ForbiddenException('Only message author can edit message');
     }
 
-    // Check if edit window is still open (e.g., 24 hours)
     const editWindowHours = 24;
     const editDeadline = new Date(
       message.createdAt.getTime() + editWindowHours * 60 * 60 * 1000,
@@ -361,13 +341,11 @@ export class MessageService {
       throw new ForbiddenException('Edit window has expired');
     }
 
-    // Handle mentioned users update
     if (updateMessageDto.mentionedUserIds) {
       const mentionedUsers = await this.userRepository.findByIds(
         updateMessageDto.mentionedUserIds,
       );
 
-      // Verify mentioned users are channel members
       for (const user of mentionedUsers) {
         const isMentionedUserMember = message.channel.members.some(
           (member) => member.id === user.id,
@@ -405,7 +383,6 @@ export class MessageService {
       throw new NotFoundException('Message not found');
     }
 
-    // Only author or channel creator can delete message
     const canDelete =
       message.author.id === userId || message.channel.creator?.id === userId;
 
@@ -415,7 +392,6 @@ export class MessageService {
       );
     }
 
-    // Soft delete - mark as deleted but keep record
     message.isDeleted = true;
     message.content = '[This message was deleted]';
     await this.messageRepository.save(message);
@@ -434,7 +410,6 @@ export class MessageService {
       throw new NotFoundException('Message not found');
     }
 
-    // Check access
     const isMember = message.channel.members.some(
       (member) => member.id === userId,
     );
@@ -442,7 +417,6 @@ export class MessageService {
       throw new ForbiddenException('Access denied');
     }
 
-    // Check if user already reacted with this emoji
     const existingReaction = message.reactions.find(
       (reaction) =>
         reaction.emoji === messageReactionDto.emoji &&
@@ -450,10 +424,8 @@ export class MessageService {
     );
 
     if (existingReaction) {
-      // Remove reaction (toggle)
       await this.messageReactionRepository.remove(existingReaction);
     } else {
-      // Add reaction
       const user = await this.userRepository.findOne({ where: { id: userId } });
       if (!user) throw new NotFoundException('User not found');
 
@@ -472,7 +444,6 @@ export class MessageService {
     searchDto: MessageSearchDto,
     userId: string,
   ): Promise<MessageResponseDto[]> {
-    // First, get channels the user has access to
     const userChannels = await this.dataSource
       .getRepository(Channel)
       .createQueryBuilder('channel')
@@ -484,10 +455,9 @@ export class MessageService {
     const channelIds = userChannels.map((ch) => ch.id);
 
     if (channelIds.length === 0) {
-      return []; // User has no channels, return empty
+      return [];
     }
 
-    // Build the message query with simpler joins
     let queryBuilder = this.messageRepository
       .createQueryBuilder('message')
       .leftJoinAndSelect('message.author', 'author')
@@ -544,7 +514,7 @@ export class MessageService {
 
     const messages = await queryBuilder
       .orderBy('message.createdAt', 'DESC')
-      .take(100) // Limit search results
+      .take(100)
       .getMany();
 
     return messages.map((message) =>
@@ -554,7 +524,7 @@ export class MessageService {
 
   async findOne(id: string, userId: string): Promise<MessageResponseDto> {
     const message = await this.messageRepository.findOne({
-      where: { id: id, isDeleted: false },
+      where: { id, isDeleted: false },
       relations: [
         'author',
         'channel',
@@ -571,7 +541,6 @@ export class MessageService {
       throw new NotFoundException('Message not found');
     }
 
-    // Check if user has access to the channel
     const isMember = message.channel.members.some(
       (member) => member.id === userId,
     );
@@ -595,7 +564,6 @@ export class MessageService {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check access
     const isMember = channel.members.some((member) => member.id === userId);
     if (!isMember) {
       throw new ForbiddenException('Access denied');
@@ -636,7 +604,6 @@ export class MessageService {
       throw new NotFoundException('Channel not found');
     }
 
-    // Check if user is member of channel
     const isMember = channel.members.some((member) => member.id === userId);
     if (!isMember) {
       throw new ForbiddenException('Access denied to this channel');
@@ -653,7 +620,6 @@ export class MessageService {
 
     for (const file of files) {
       try {
-        // Create attachment directly for messages
         const fileName = `${Date.now()}-${file.originalname}`;
         const attachment = this.attachmentRepository.create({
           originalName: file.originalname,
@@ -663,10 +629,8 @@ export class MessageService {
           fileSize: file.size,
           type: this.getAttachmentType(file.mimetype),
           uploadedById: user.id,
-          // messageId will be set when message is created
         });
 
-        // Save file to filesystem
         const fs = await import('fs');
         const path = await import('path');
         const uploadDir = path.join(process.cwd(), 'uploads', 'messages');
@@ -682,7 +646,6 @@ export class MessageService {
         attachmentIds.push(savedAttachment.id);
       } catch (error) {
         console.error(`Failed to upload file ${file.originalname}:`, error);
-        // Continue with other files
       }
     }
 
@@ -703,7 +666,6 @@ export class MessageService {
     message: Message,
     currentUserId: string,
   ): MessageResponseDto {
-    // Group reactions by emoji
     interface ReactionGroup {
       id: string;
       emoji: string;
@@ -755,7 +717,7 @@ export class MessageService {
         : undefined,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
-      editedAt: message.updatedAt, // Use updatedAt as editedAt approximation
+      editedAt: message.updatedAt,
       author: {
         id: message.author.id,
         firstName: message.author.firstName,
@@ -782,14 +744,11 @@ export class MessageService {
         message.attachments?.map((attachment) => ({
           id: attachment.id,
           filename: attachment.fileName,
-          url: attachment.filePath, // You might want to generate a proper URL
+          url: attachment.filePath,
           size: attachment.fileSize,
           mimeType: attachment.mimeType,
         })) || [],
       reactions: reactionGroups,
-      mentionedUsers: [], // TODO: Load mentioned users by IDs from JSON.parse(message.mentions)
-      threadReplies: [], // TODO: Load thread replies if needed
-      threadCount: 0, // TODO: Count thread replies
     };
   }
 }

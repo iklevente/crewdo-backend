@@ -45,10 +45,10 @@ export const databaseProviders = [
           UserPresence,
         ],
         synchronize: true,
-        logging: false, // Disabled for cleaner logs
+        logging: false,
         options: {
-          encrypt: false, // Set to true if using Azure SQL
-          trustServerCertificate: true, // For local development
+          encrypt: false,
+          trustServerCertificate: true,
         },
       });
 

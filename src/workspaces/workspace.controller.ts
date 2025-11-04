@@ -19,12 +19,16 @@ import {
   ApiResponse,
   ApiParam,
 } from '@nestjs/swagger';
-import { WorkspaceService } from '../services/workspace.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { WorkspaceService } from './workspace.service';
 import {
   CreateWorkspaceDto,
   UpdateWorkspaceDto,
   WorkspaceResponseDto,
 } from '../dto/workspace.dto';
+import { UserRole } from '../entities';
 
 interface AuthenticatedRequest {
   user: {
@@ -33,10 +37,6 @@ interface AuthenticatedRequest {
     role: UserRole;
   };
 }
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../entities';
 
 @ApiTags('workspaces')
 @Controller('workspaces')

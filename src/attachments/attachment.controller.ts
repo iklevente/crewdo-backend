@@ -23,7 +23,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { AttachmentService } from '../services/attachment.service';
+import { AttachmentService } from './attachment.service';
 import {
   AttachmentResponseDto,
   AttachmentUploadDto,

@@ -46,7 +46,6 @@ export class Workspace {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => User)
   @JoinColumn({ name: 'ownerId' })
   owner: User;

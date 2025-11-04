@@ -7,7 +7,7 @@ import {
 import { Repository, DataSource } from 'typeorm';
 import { Comment, Task, UserRole } from '../entities';
 import { CreateCommentDto, UpdateCommentDto } from '../dto/comment.dto';
-import { NotificationService } from '../services/notification.service';
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class CommentsService {
@@ -27,7 +27,6 @@ export class CommentsService {
     createCommentDto: CreateCommentDto,
     authorId: string,
   ): Promise<Comment> {
-    // Check if task exists and user has access
     const task = await this.taskRepository
       .createQueryBuilder('task')
       .leftJoinAndSelect('task.project', 'project')
@@ -59,17 +58,14 @@ export class CommentsService {
     try {
       const notificationTargets = new Set<string>();
 
-      // Add task assignee
       if (task.assigneeId && task.assigneeId !== authorId) {
         notificationTargets.add(task.assigneeId);
       }
 
-      // Add project owner
       if (task.project.ownerId !== authorId) {
         notificationTargets.add(task.project.ownerId);
       }
 
-      // Add task creator
       if (task.creatorId && task.creatorId !== authorId) {
         notificationTargets.add(task.creatorId);
       }

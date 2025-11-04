@@ -17,8 +17,8 @@ import {
   ApiResponse,
   ApiParam,
 } from '@nestjs/swagger';
-import { CallService } from '../services/call.service';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { CallService } from './call.service';
+import { ChatGateway } from '../realtime/chat.gateway';
 import {
   StartCallDto,
   ScheduleCallDto,
@@ -120,7 +120,6 @@ export class CallController {
     @Body() joinCallDto: JoinCallDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    // Service validates user has permission to join this call
     return this.callService.joinCall(id, joinCallDto, req.user.id);
   }
 
@@ -136,7 +135,6 @@ export class CallController {
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    // Service validates user is in the call and can leave
     return this.callService.leaveCall(id, req.user.id);
   }
 
@@ -167,7 +165,6 @@ export class CallController {
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<void> {
-    // Service validates user is the call initiator
     return this.callService.endCall(id, req.user.id);
   }
 
@@ -199,7 +196,6 @@ export class CallController {
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<CallResponseDto> {
-    // Service validates user has access to view this call
     return this.callService.findOne(id, req.user.id);
   }
 }

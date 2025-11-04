@@ -44,7 +44,6 @@ export class CallParticipant {
   @Column({ nullable: true })
   leftAt: Date;
 
-  // Relations
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;

@@ -14,12 +14,12 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PresenceService } from '../services/presence.service';
+import { PresenceService } from './presence.service';
 import {
   ManualPresenceUpdateDto,
   PresenceResponseDto,
 } from '../dto/presence.dto';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { ChatGateway } from '../realtime/chat.gateway';
 
 interface AuthenticatedRequest {
   user: {

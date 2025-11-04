@@ -12,19 +12,18 @@ import {
   Channel,
   Message,
   Project,
-  Call,
   MessageReadReceipt,
   ChannelType,
   ChannelVisibility,
   UserRole,
   UserPresence,
-} from '../entities/index';
+} from '../entities';
 import {
   CreateWorkspaceDto,
   UpdateWorkspaceDto,
   WorkspaceResponseDto,
 } from '../dto/workspace.dto';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { ChatGateway } from '../realtime/chat.gateway';
 
 @Injectable()
 export class WorkspaceService {
@@ -33,7 +32,6 @@ export class WorkspaceService {
   private channelRepository: Repository<Channel>;
   private projectRepository: Repository<Project>;
   private messageRepository: Repository<Message>;
-  private callRepository: Repository<Call>;
   private messageReadReceiptRepository: Repository<MessageReadReceipt>;
   private presenceRepository: Repository<UserPresence>;
 
@@ -47,7 +45,6 @@ export class WorkspaceService {
     this.channelRepository = this.dataSource.getRepository(Channel);
     this.projectRepository = this.dataSource.getRepository(Project);
     this.messageRepository = this.dataSource.getRepository(Message);
-    this.callRepository = this.dataSource.getRepository(Call);
     this.messageReadReceiptRepository =
       this.dataSource.getRepository(MessageReadReceipt);
     this.presenceRepository = this.dataSource.getRepository(UserPresence);
@@ -62,13 +59,11 @@ export class WorkspaceService {
       throw new NotFoundException('Owner not found');
     }
 
-    // Check if user has reached workspace limit (optional business rule)
     const userWorkspaceCount = await this.workspaceRepository.count({
       where: { owner: { id: ownerId } },
     });
 
     if (userWorkspaceCount >= 10) {
-      // Example limit
       throw new BadRequestException('Maximum workspace limit reached');
     }
 
@@ -80,7 +75,6 @@ export class WorkspaceService {
 
     const savedWorkspace = await this.workspaceRepository.save(workspace);
 
-    // Create default general channel
     const generalChannel = this.channelRepository.create({
       name: 'general',
       description: 'General discussion',
@@ -93,17 +87,17 @@ export class WorkspaceService {
 
     await this.channelRepository.save(generalChannel);
 
-    const hydratedWorkspace = await this.workspaceRepository.findOne({
+    const workspaceWithRelations = await this.workspaceRepository.findOne({
       where: { id: savedWorkspace.id },
       relations: ['owner', 'members'],
     });
 
-    if (hydratedWorkspace) {
-      this.broadcastWorkspaceEvent('workspace_created', hydratedWorkspace);
+    if (workspaceWithRelations) {
+      this.broadcastWorkspaceEvent('workspace_created', workspaceWithRelations);
     }
 
     return await this.formatWorkspaceResponse(
-      hydratedWorkspace ?? savedWorkspace,
+      workspaceWithRelations ?? savedWorkspace,
       ownerId,
       owner.role,
     );
@@ -226,10 +220,6 @@ export class WorkspaceService {
       );
     }
 
-    // Manual cascading delete - delete dependent entities first
-    // We need to be careful about the order due to foreign key constraints
-
-    // 1. Get all channels in this workspace to clean up their dependent entities
     const channels = await this.channelRepository.find({
       where: { workspaceId: id },
       select: ['id'],
@@ -237,20 +227,16 @@ export class WorkspaceService {
     const channelIds = channels.map((channel) => channel.id);
 
     if (channelIds.length > 0) {
-      // 2. Delete all channel-dependent entities
       await this.messageReadReceiptRepository.delete({
         channelId: In(channelIds),
       });
       await this.messageRepository.delete({ channelId: In(channelIds) });
     }
 
-    // 3. Delete all projects in this workspace (which will cascade to tasks)
     await this.projectRepository.delete({ workspaceId: id });
 
-    // 4. Delete all channels in this workspace
     await this.channelRepository.delete({ workspaceId: id });
 
-    // 5. Finally delete the workspace
     const recipients = this.getWorkspaceRecipientIds(workspace);
 
     await this.workspaceRepository.remove(workspace);
@@ -295,7 +281,6 @@ export class WorkspaceService {
       throw new NotFoundException('User not found');
     }
 
-    // Check if user is already a member
     const isAlreadyMember = workspace.members.some(
       (member) => member.id === user.id,
     );
@@ -306,7 +291,6 @@ export class WorkspaceService {
     workspace.members.push(user);
     await this.workspaceRepository.save(workspace);
 
-    // Add user to general channel
     const generalChannel = await this.channelRepository.findOne({
       where: {
         workspace: { id: workspaceId },
@@ -334,7 +318,6 @@ export class WorkspaceService {
 
     this.broadcastWorkspaceEvent('workspace_updated', workspace);
 
-    // Explicitly notify the new member to refresh their workspace list
     this.chatGateway.sendToUser(user.id, 'workspace_created', {
       workspaceId,
     });
@@ -355,7 +338,6 @@ export class WorkspaceService {
       throw new NotFoundException('Workspace not found');
     }
 
-    // Owner cannot be removed
     if (workspace.owner.id === userId) {
       throw new BadRequestException('Workspace owner cannot be removed');
     }
@@ -375,7 +357,6 @@ export class WorkspaceService {
     );
     await this.workspaceRepository.save(workspace);
 
-    // Remove user from all channels in workspace
     const channels = await this.channelRepository.find({
       where: { workspace: { id: workspaceId } },
       relations: ['members'],
@@ -474,7 +455,6 @@ export class WorkspaceService {
           lastName: member.lastName,
           email: member.email,
           profilePicture: member.profilePicture,
-          joinedAt: member.createdAt, // You might want to add a separate joinedAt field
           presence: serializePresence(member.id),
         })),
     };
@@ -488,7 +468,6 @@ export class WorkspaceService {
     const channels = (workspace.channels as Channel[] | undefined) || [];
 
     const visibleChannels = channels.filter((channel) => {
-      // Filter out archived channels
       if (channel.isArchived) {
         return false;
       }
@@ -503,7 +482,6 @@ export class WorkspaceService {
         return true;
       }
 
-      // Private channel - check membership
       const members = (channel.members as User[] | undefined) || [];
       const isMember = members.some((member) => member.id === viewerId);
 

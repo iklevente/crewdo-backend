@@ -8,7 +8,7 @@ import { UsersModule } from '../users/users.module';
 import { LocalStrategy } from './local.strategy';
 import { JwtStrategy } from './jwt.strategy';
 import { DatabaseModule } from '../config/database.module';
-import { PresenceService } from '../services/presence.service';
+import { PresenceModule } from '../presence/presence.module';
 
 @Module({
   imports: [
@@ -16,19 +16,20 @@ import { PresenceService } from '../services/presence.service';
     PassportModule,
     ConfigModule,
     DatabaseModule,
+    PresenceModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: () => {
-        return {
-          secret: process.env.JWT_SECRET || 'jwt_secret',
-          signOptions: { expiresIn: '60m' },
-        };
-      },
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get<string>('jwt.secret', 'jwt_secret'),
+        signOptions: {
+          expiresIn: configService.get<string>('jwt.expiresIn', '1d'),
+        },
+      }),
       inject: [ConfigService],
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy, PresenceService],
+  providers: [AuthService, LocalStrategy, JwtStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}

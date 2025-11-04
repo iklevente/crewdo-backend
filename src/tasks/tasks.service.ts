@@ -7,7 +7,7 @@ import {
 import { Repository, DataSource } from 'typeorm';
 import { Task, Project, User, UserRole, TaskStatus } from '../entities';
 import { CreateTaskDto, UpdateTaskDto } from '../dto/task.dto';
-import { NotificationService } from '../services/notification.service';
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class TasksService {

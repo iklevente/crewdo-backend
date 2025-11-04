@@ -165,10 +165,6 @@ export class CallResponseDto {
     joinedAt?: Date;
     leftAt?: Date;
     isMuted: boolean;
-    isVideoEnabled: boolean;
-    isScreenSharing: boolean;
-    isHandRaised: boolean;
-    connectionQuality: string;
   }>;
 
   @ApiPropertyOptional()

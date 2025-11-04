@@ -15,7 +15,7 @@ import {
   CallStatus,
   CallType,
   ParticipantStatus,
-} from '../entities/index';
+} from '../entities';
 import {
   StartCallDto,
   ScheduleCallDto,
@@ -24,9 +24,9 @@ import {
   CallResponseDto,
   CallSessionResponseDto,
 } from '../dto/call.dto';
-import { NotificationService } from './notification.service';
+import { NotificationService } from '../notifications/notification.service';
 import { LivekitService } from './livekit.service';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { ChatGateway } from '../realtime/chat.gateway';
 
 interface CallSettings {
   description?: string;
@@ -198,9 +198,9 @@ export class CallService implements OnModuleInit {
 
   private async emitCallUpdate(call: Call): Promise<void> {
     try {
-      const hydratedCall = await this.ensureCallRelations(call);
-      const payload = this.formatCallResponse(hydratedCall);
-      const recipients = this.collectCallRecipients(hydratedCall);
+      const callWithRelations = await this.ensureCallRelations(call);
+      const payload = this.formatCallResponse(callWithRelations);
+      const recipients = this.collectCallRecipients(callWithRelations);
 
       if (recipients.size > 0) {
         this.logger.log(
@@ -389,10 +389,12 @@ export class CallService implements OnModuleInit {
 
     await this.ensureLivekitRoom(callWithSettings);
 
-    const hydratedCall = await this.getCallWithRelations(callWithSettings.id);
-    const callResponse = this.formatCallResponse(hydratedCall);
+    const callWithRelations = await this.getCallWithRelations(
+      callWithSettings.id,
+    );
+    const callResponse = this.formatCallResponse(callWithRelations);
 
-    await this.emitCallUpdate(hydratedCall);
+    await this.emitCallUpdate(callWithRelations);
 
     // Send incoming_call event to each invited user
     try {
@@ -472,9 +474,11 @@ export class CallService implements OnModuleInit {
 
     await this.ensureLivekitRoom(callWithSettings);
 
-    const hydratedCall = await this.getCallWithRelations(callWithSettings.id);
-    await this.emitCallUpdate(hydratedCall);
-    return this.formatCallResponse(hydratedCall);
+    const callWithRelations = await this.getCallWithRelations(
+      callWithSettings.id,
+    );
+    await this.emitCallUpdate(callWithRelations);
+    return this.formatCallResponse(callWithRelations);
   }
 
   async joinCall(
@@ -879,9 +883,6 @@ export class CallService implements OnModuleInit {
             participant.status === ParticipantStatus.JOINED
               ? !participant.isVideoOff
               : false,
-          isScreenSharing: false, // Would need to be tracked separately
-          isHandRaised: false, // Would need to be tracked separately
-          connectionQuality: 'good', // Would need to be tracked separately
         })) || [],
       duration,
       maxParticipants: call.participants?.length || 0,

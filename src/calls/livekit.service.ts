@@ -239,20 +239,6 @@ export class LivekitService {
     return jwt;
   }
 
-  private isRoomServiceAdapter(value: unknown): value is RoomServiceAdapter {
-    if (typeof value !== 'object' || value === null) {
-      return false;
-    }
-
-    const hasGetRoom =
-      typeof (value as { getRoom?: unknown }).getRoom === 'function';
-    if (!hasGetRoom) {
-      return false;
-    }
-
-    return typeof (value as { createRoom?: unknown }).createRoom === 'function';
-  }
-
   private assertAccessToken(
     value: unknown,
   ): asserts value is AccessTokenAdapter {

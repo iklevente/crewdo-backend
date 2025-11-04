@@ -10,7 +10,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: (configService.get('cors.origin') as string) || '*',
+    origin: configService.get<string>('cors.origin', '*'),
     credentials: true,
   });
 
@@ -64,7 +64,7 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix('api');
 
-  const port = (configService.get('port') as number) || 3000;
+  const port = configService.get<number>('port', 3000);
   await app.listen(port);
 
   console.log(`🚀 Crewdo Backend is running on: http://localhost:${port}`);

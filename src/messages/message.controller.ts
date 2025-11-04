@@ -26,9 +26,9 @@ import {
   ApiQuery,
   ApiConsumes,
 } from '@nestjs/swagger';
-import { MessageService } from '../services/message.service';
-import { ChannelService } from '../services/channel.service';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { MessageService } from './message.service';
+import { ChannelService } from '../channels/channel.service';
+import { ChatGateway } from '../realtime/chat.gateway';
 import {
   CreateMessageDto,
   UpdateMessageDto,
@@ -76,7 +76,6 @@ export class MessageController {
       req.user.id,
     );
 
-    // Broadcast the message via websocket
     this.chatGateway.sendToChannel(
       createMessageDto.channelId,
       'new_message',
@@ -120,7 +119,6 @@ export class MessageController {
     @Query('order') order?: 'asc' | 'desc',
     @Request() req?: AuthenticatedRequest,
   ) {
-    // Validate cursor if provided and not empty
     if (
       cursor &&
       cursor !== '' &&
@@ -129,10 +127,9 @@ export class MessageController {
       cursor !== 'string'
     ) {
       try {
-        // Validate that cursor is a valid UUID
         void new ParseUUIDPipe().transform(cursor, { type: 'query' });
       } catch {
-        cursor = undefined; // Reset invalid cursor to undefined
+        cursor = undefined;
       }
     } else {
       cursor = undefined;
@@ -143,7 +140,6 @@ export class MessageController {
       limit,
       order,
     };
-    // Service validates user has access to the channel
     return this.messageService.findByChannel(
       channelId,
       req?.user.id || '',
@@ -208,7 +204,6 @@ export class MessageController {
     @Query() searchDto: MessageSearchDto,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto[]> {
-    // Service validates user has access to channels being searched
     return this.messageService.search(searchDto, req.user.id);
   }
 
@@ -228,7 +223,6 @@ export class MessageController {
     @Param('channelId', ParseUUIDPipe) channelId: string,
     @Request() req: AuthenticatedRequest,
   ): Promise<MessageResponseDto[]> {
-    // Service validates user has access to the channel
     return this.messageService.getPinnedMessages(channelId, req.user.id);
   }
 
@@ -287,7 +281,6 @@ export class MessageController {
       req.user.id,
     );
 
-    // Broadcast reaction update via websocket
     this.chatGateway.sendToChannel(result.channelId, 'reaction_updated', {
       messageId: messageReactionDto.messageId,
       emoji: messageReactionDto.emoji,
@@ -357,13 +350,12 @@ export class MessageController {
     status: 403,
     description: 'Forbidden - No access to upload to this channel',
   })
-  @UseInterceptors(FilesInterceptor('files', 10)) // Allow up to 10 files
+  @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMessageAttachments(
     @Param('channelId', ParseUUIDPipe) channelId: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Request() req: AuthenticatedRequest,
   ): Promise<{ attachmentIds: string[] }> {
-    // Service validates user has access to upload to this channel
     return this.messageService.uploadMessageAttachments(
       files,
       channelId,

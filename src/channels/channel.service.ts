@@ -17,14 +17,14 @@ import {
   Workspace,
   UserRole,
   UserPresence,
-} from '../entities/index';
+} from '../entities';
 import {
   CreateChannelDto,
   CreateDirectMessageDto,
   UpdateChannelDto,
   ChannelResponseDto,
 } from '../dto/channel.dto';
-import { ChatGateway } from '../websocket/chat.gateway';
+import { ChatGateway } from '../realtime/chat.gateway';
 
 @Injectable()
 export class ChannelService {
@@ -275,7 +275,6 @@ export class ChannelService {
       if (error instanceof Error) {
         console.error('Stack trace:', error.stack);
       }
-      // Return empty array instead of throwing to prevent 500 errors
       return [];
     }
   }
@@ -601,9 +600,6 @@ export class ChannelService {
     });
   }
 
-  /**
-   * Get unread message count for a user in a specific channel
-   */
   async getUnreadCount(channelId: string, userId: string): Promise<number> {
     // Get the last read message timestamp for this user in this channel
     const lastReadReceipt = await this.readReceiptRepository.findOne({
@@ -627,9 +623,6 @@ export class ChannelService {
     return await queryBuilder.getCount();
   }
 
-  /**
-   * Mark messages as read up to a specific message
-   */
   async markMessagesAsRead(
     channelId: string,
     userId: string,
@@ -693,9 +686,6 @@ export class ChannelService {
     await this.readReceiptRepository.save(readReceipt);
   }
 
-  /**
-   * Get read status for messages in a channel
-   */
   async getMessageReadStatus(
     channelId: string,
     messageIds: string[],
