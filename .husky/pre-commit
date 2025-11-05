@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Run backend lint before committing
+npm run lint
