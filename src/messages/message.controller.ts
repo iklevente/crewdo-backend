@@ -207,25 +207,6 @@ export class MessageController {
     return this.messageService.search(searchDto, req.user.id);
   }
 
-  @Get('channel/:channelId/pinned')
-  @ApiOperation({ summary: 'Get pinned messages in channel' })
-  @ApiParam({ name: 'channelId', description: 'Channel ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'List of pinned messages',
-    type: [MessageResponseDto],
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - No access to this channel',
-  })
-  async getPinnedMessages(
-    @Param('channelId', ParseUUIDPipe) channelId: string,
-    @Request() req: AuthenticatedRequest,
-  ): Promise<MessageResponseDto[]> {
-    return this.messageService.getPinnedMessages(channelId, req.user.id);
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Get message by ID' })
   @ApiParam({ name: 'id', description: 'Message ID' })

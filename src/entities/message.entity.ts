@@ -39,15 +39,6 @@ export class Message {
   @Column({ default: false })
   isDeleted: boolean;
 
-  @Column({ default: false })
-  isPinned: boolean;
-
-  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
-  mentions: string; // JSON string of user IDs mentioned in the message
-
-  @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
-  metadata: string | null;
-
   @Column('uuid', { nullable: true })
   replyToId: string; // For message threading/replies
 

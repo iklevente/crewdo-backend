@@ -29,12 +29,6 @@ export class CreateMessageDto {
   @IsUUID('all', { each: true })
   attachmentIds?: string[];
 
-  @ApiPropertyOptional({ example: ['user-id-1', 'user-id-2'] })
-  @IsOptional()
-  @IsArray()
-  @IsUUID('all', { each: true })
-  mentionedUserIds?: string[];
-
   @ApiPropertyOptional({ description: 'Structured payload for embeds' })
   @IsOptional()
   @IsObject()
@@ -51,17 +45,6 @@ export class UpdateMessageDto {
   @IsOptional()
   @IsString()
   content?: string;
-
-  @ApiPropertyOptional({ example: ['user-id-1', 'user-id-3'] })
-  @IsOptional()
-  @IsArray()
-  @IsUUID('all', { each: true })
-  mentionedUserIds?: string[];
-
-  @ApiPropertyOptional({ example: true })
-  @IsOptional()
-  @IsBoolean()
-  isPinned?: boolean;
 }
 
 export class MessageReactionDto {
@@ -85,16 +68,10 @@ export class MessageResponseDto {
   isEdited: boolean;
 
   @ApiProperty()
-  isPinned: boolean;
-
-  @ApiProperty()
   isDeleted: boolean;
 
   @ApiProperty()
   isSystemMessage: boolean;
-
-  @ApiPropertyOptional()
-  embedData?: any;
 
   @ApiProperty()
   createdAt: Date;

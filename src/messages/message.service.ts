@@ -88,26 +88,6 @@ export class MessageService {
       }
     }
 
-    let mentions: string[] = [];
-    if (createMessageDto.mentionedUserIds) {
-      const mentionedUsers = await this.userRepository.findByIds(
-        createMessageDto.mentionedUserIds,
-      );
-
-      for (const user of mentionedUsers) {
-        const isMentionedUserMember = channel.members.some(
-          (member) => member.id === user.id,
-        );
-        if (!isMentionedUserMember) {
-          throw new BadRequestException(
-            `User ${user.email} is not a member of this channel`,
-          );
-        }
-      }
-
-      mentions = createMessageDto.mentionedUserIds;
-    }
-
     const message = this.messageRepository.create({
       content: createMessageDto.content,
       type: createMessageDto.isSystemMessage
@@ -116,10 +96,6 @@ export class MessageService {
       author,
       channel,
       replyTo: replyToMessage || undefined,
-      mentions: JSON.stringify(mentions),
-      metadata: createMessageDto.embedData
-        ? JSON.stringify(createMessageDto.embedData)
-        : null,
     });
 
     const savedMessage = (await this.messageRepository.save(
@@ -341,32 +317,9 @@ export class MessageService {
       throw new ForbiddenException('Edit window has expired');
     }
 
-    if (updateMessageDto.mentionedUserIds) {
-      const mentionedUsers = await this.userRepository.findByIds(
-        updateMessageDto.mentionedUserIds,
-      );
-
-      for (const user of mentionedUsers) {
-        const isMentionedUserMember = message.channel.members.some(
-          (member) => member.id === user.id,
-        );
-        if (!isMentionedUserMember) {
-          throw new BadRequestException(
-            `User ${user.email} is not a member of this channel`,
-          );
-        }
-      }
-
-      message.mentions = JSON.stringify(updateMessageDto.mentionedUserIds);
-    }
-
     if (updateMessageDto.content) {
       message.content = updateMessageDto.content;
       message.isEdited = true;
-    }
-
-    if (typeof updateMessageDto.isPinned === 'boolean') {
-      message.isPinned = updateMessageDto.isPinned;
     }
 
     const updatedMessage = await this.messageRepository.save(message);
@@ -551,45 +504,6 @@ export class MessageService {
     return this.formatMessageResponse(message, userId);
   }
 
-  async getPinnedMessages(
-    channelId: string,
-    userId: string,
-  ): Promise<MessageResponseDto[]> {
-    const channel = await this.channelRepository.findOne({
-      where: { id: channelId },
-      relations: ['members'],
-    });
-
-    if (!channel) {
-      throw new NotFoundException('Channel not found');
-    }
-
-    const isMember = channel.members.some((member) => member.id === userId);
-    if (!isMember) {
-      throw new ForbiddenException('Access denied');
-    }
-
-    const pinnedMessages = await this.messageRepository.find({
-      where: {
-        channelId,
-        isPinned: true,
-        isDeleted: false,
-      },
-      relations: [
-        'author',
-        'channel',
-        'attachments',
-        'reactions',
-        'reactions.user',
-      ],
-      order: { createdAt: 'DESC' },
-    });
-
-    return pinnedMessages.map((message) =>
-      this.formatMessageResponse(message, userId),
-    );
-  }
-
   async uploadMessageAttachments(
     files: Express.Multer.File[],
     channelId: string,
@@ -709,12 +623,8 @@ export class MessageService {
       id: message.id,
       content: message.content,
       isEdited: message.isEdited,
-      isPinned: message.isPinned,
       isDeleted: message.isDeleted,
       isSystemMessage: message.type === MessageType.SYSTEM,
-      embedData: message.metadata
-        ? (JSON.parse(message.metadata) as Record<string, unknown>)
-        : undefined,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
       editedAt: message.updatedAt,
