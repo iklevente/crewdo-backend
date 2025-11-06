@@ -69,8 +69,6 @@ export class UsersService {
         'phoneNumber',
         'department',
         'position',
-        'profilePicture',
-        'isEmailVerified',
         'createdAt',
         'updatedAt',
         'lastLoginAt',
@@ -157,16 +155,10 @@ export class UsersService {
     return await this.userRepository
       .createQueryBuilder('user')
       .where(
-        'LOWER(user.firstName) LIKE LOWER(:query) OR LOWER(user.lastName) LIKE LOWER(:query) OR LOWER(user.email) LIKE LOWER(:query)',
+        'LOWER([user].[firstName]) LIKE LOWER(:query) OR LOWER([user].[lastName]) LIKE LOWER(:query) OR LOWER([user].[email]) LIKE LOWER(:query)',
         { query: `%${query}%` },
       )
-      .select([
-        'user.id',
-        'user.email',
-        'user.firstName',
-        'user.lastName',
-        'user.profilePicture',
-      ])
+      .select(['user.id', 'user.email', 'user.firstName', 'user.lastName'])
       .getMany();
   }
 }

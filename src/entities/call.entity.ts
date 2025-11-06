@@ -16,14 +16,12 @@ import { CallParticipant } from './call-participant.entity';
 export enum CallType {
   VOICE = 'voice',
   VIDEO = 'video',
-  SCREEN_SHARE = 'screen_share',
 }
 
 export enum CallStatus {
   SCHEDULED = 'scheduled',
   ACTIVE = 'active',
   ENDED = 'ended',
-  CANCELLED = 'cancelled',
 }
 
 @Entity('calls')
@@ -76,7 +74,6 @@ export class Call {
   @OneToMany(() => CallParticipant, (participant) => participant.call)
   participants: CallParticipant[];
 
-  // For direct calls (DM)
   @ManyToMany(() => User)
   @JoinTable({
     name: 'call_invites',

@@ -56,9 +56,6 @@ export class User {
   })
   status: UserStatus;
 
-  @Column({ nullable: true, type: 'nvarchar', length: 512 })
-  profilePicture: string;
-
   @Column({ nullable: true, type: 'nvarchar', length: 32 })
   phoneNumber: string;
 
@@ -67,9 +64,6 @@ export class User {
 
   @Column({ nullable: true, type: 'nvarchar', length: 120 })
   position: string;
-
-  @Column({ default: false })
-  isEmailVerified: boolean;
 
   @Column({ nullable: true })
   lastLoginAt: Date;

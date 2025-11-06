@@ -444,7 +444,6 @@ export class WorkspaceService {
         firstName: workspace.owner.firstName,
         lastName: workspace.owner.lastName,
         email: workspace.owner.email,
-        profilePicture: workspace.owner.profilePicture,
         presence: serializePresence(workspace.owner.id),
       },
       members: workspace.members
@@ -454,7 +453,6 @@ export class WorkspaceService {
           firstName: member.firstName,
           lastName: member.lastName,
           email: member.email,
-          profilePicture: member.profilePicture,
           presence: serializePresence(member.id),
         })),
     };
@@ -562,7 +560,6 @@ export class WorkspaceService {
       name: workspace.name,
       description: workspace.description,
       type: workspace.type,
-      isPublic: workspace.isPublic,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       owner: {

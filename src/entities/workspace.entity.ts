@@ -37,9 +37,6 @@ export class Workspace {
   })
   type: WorkspaceType;
 
-  @Column({ default: false })
-  isPublic: boolean;
-
   @CreateDateColumn()
   createdAt: Date;
 

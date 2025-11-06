@@ -72,9 +72,6 @@ export class WorkspaceResponseDto {
   type: WorkspaceType;
 
   @ApiProperty()
-  isPublic: boolean;
-
-  @ApiProperty()
   createdAt: Date;
 
   @ApiProperty()

@@ -58,7 +58,7 @@ export class Channel {
   isArchived: boolean;
 
   @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
-  settings: string; // JSON string for channel-specific settings like notifications, permissions
+  settings: string;
 
   @CreateDateColumn()
   createdAt: Date;

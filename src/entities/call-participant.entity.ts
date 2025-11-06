@@ -13,8 +13,6 @@ export enum ParticipantStatus {
   INVITED = 'invited',
   JOINED = 'joined',
   LEFT = 'left',
-  KICKED = 'kicked',
-  DECLINED = 'declined',
 }
 
 @Entity('call_participants')
@@ -34,9 +32,6 @@ export class CallParticipant {
 
   @Column({ default: false })
   isVideoOff: boolean;
-
-  @Column({ default: false })
-  isSpeaking: boolean;
 
   @CreateDateColumn()
   joinedAt: Date;
