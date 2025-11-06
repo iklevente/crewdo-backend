@@ -16,12 +16,7 @@ describe('GET /api/messages/channel/:channelId (e2e)', () => {
   let app: INestApplication;
 
   const mockMessageService: Partial<MessageService> = {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    findByChannel: async (
-      channelId: string,
-      userId: string,
-      historyDto: any,
-    ) => {
+    findByChannel: async (channelId: string, userId: string) => {
       return {
         messages: [
           {
@@ -55,13 +50,9 @@ describe('GET /api/messages/channel/:channelId (e2e)', () => {
     },
   } as Partial<MessageService>;
 
-  const mockChannelService: Partial<ChannelService> = {
-    // not used in this test
-  };
+  const mockChannelService: Partial<ChannelService> = {};
 
-  const mockChatGateway: Partial<ChatGateway> = {
-    // not used in this test
-  };
+  const mockChatGateway: Partial<ChatGateway> = {};
 
   class AllowAllAuthGuard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {

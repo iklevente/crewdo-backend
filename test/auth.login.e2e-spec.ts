@@ -26,7 +26,6 @@ describe('POST /api/auth/login (e2e)', () => {
           },
         } as any;
       }
-      // simulate service throwing on invalid creds
       throw new UnauthorizedException('Invalid credentials');
     },
   };
