@@ -2,7 +2,7 @@ import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { PresenceStatus } from '../entities/presence.entity';
 import { UserRole, UserStatus, User } from '../entities/user.entity';
-import type { LoginDto, RegisterDto } from '../dto/auth.dto';
+import type { AuthResponseDto, LoginDto, RegisterDto } from '../dto/auth.dto';
 import type { UsersService } from '../users/users.service';
 import type { JwtService } from '@nestjs/jwt';
 import type { ConfigService } from '@nestjs/config';
