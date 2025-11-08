@@ -119,31 +119,40 @@ export class PresenceService {
   }
 
   private async getOrCreatePresence(userId: string): Promise<UserPresence> {
-    let presence = await this.presenceRepository.findOne({
-      where: { userId },
-    });
+    return this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+      const repository = manager.getRepository(UserPresence);
 
-    if (!presence) {
-      presence = this.presenceRepository.create({
-        userId,
-        status: PresenceStatus.OFFLINE,
-        statusSource: PresenceSource.AUTO,
-        manualStatus: null,
-        lastSeenAt: null,
+      let presence = await repository.findOne({
+        where: { userId },
       });
 
-      try {
-        presence = await this.presenceRepository.save(presence);
-      } catch (error) {
-        this.logger.warn(
-          `Failed to create presence record for user ${userId}: ${String(error)}`,
-        );
-        presence = await this.presenceRepository.findOneOrFail({
-          where: { userId },
+      if (!presence) {
+        presence = repository.create({
+          userId,
+          status: PresenceStatus.OFFLINE,
+          statusSource: PresenceSource.AUTO,
+          manualStatus: null,
+          lastSeenAt: null,
         });
-      }
-    }
 
-    return presence;
+        try {
+          presence = await repository.save(presence);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to create presence record for user ${userId}: ${String(error)}`,
+          );
+
+          presence = await repository.findOne({
+            where: { userId },
+          });
+
+          if (!presence) {
+            throw error;
+          }
+        }
+      }
+
+      return presence;
+    });
   }
 }
